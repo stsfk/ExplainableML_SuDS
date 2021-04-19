@@ -360,7 +360,7 @@ optimization_wrapper <- function(option, outer_i, cv_folds, data_process){
 
 # Optimization ------------------------------------------------------------
 
-eval_grid <- expand.grid(option = 1:1,
+eval_grid <- expand.grid(option = 1:4,
                          outer_i = c(1:5)) %>%
   as_tibble()
 

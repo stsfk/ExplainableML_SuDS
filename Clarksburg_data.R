@@ -79,7 +79,7 @@ load("./data/Clarksburg/rainfall_runoff.Rda")
 process_runoff <-
   function(flow_raw,
            name = "forest",
-           year_of_choice = c(2018,2019)) {
+           year_of_choice = c(2018)) {
     flow_raw %>%
       as_tibble() %>%
       transmute(datetime = ymd_hms(dateTime),
@@ -99,7 +99,7 @@ runoffs <- map2(input1, input2, process_runoff)
 process_rain <-
   function(rain_raw,
            name = "rain",
-           year_of_choice = c(2018,2019)) {
+           year_of_choice = c(2018)) {
     rain_raw %>%
       as_tibble() %>%
       transmute(datetime = ymd_hms(dateTime),
@@ -213,7 +213,7 @@ mark_event <- function(x){
 
 # Process data for training -----------------------------------------------
 
-data_raw <- treatment2
+data_raw <- treatment1
 
 data_process <- data_raw %>% 
   mutate(year = year(datetime)) %>%
