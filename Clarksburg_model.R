@@ -381,3 +381,46 @@ for (i in 1:nrow(eval_grid)){
 save(optObjs, file = "./data/Clarksburg/model_fits/optObjs.Rda")
 
 
+
+# Plot illustration' ------------------------------------------------------
+
+
+p <- rain_alternative %>% 
+  as_tibble() %>%
+  filter(dateTime > ymd_hms("2016-05-01 17:15:00"),
+         dateTime < ymd_hms("2016-05-25 17:15:00")) %>%
+  ggplot(aes(dateTime, X_00045_00000)) +
+  geom_line()+
+  theme_minimal()+
+  theme(axis.title = element_blank(),
+        axis.text = element_blank())
+
+ggsave(file="hydrograph_illu.svg", plot=p, width=6, height=3)
+
+
+
+library(tidyverse)
+
+p <- tibble(
+  variables = c(
+    "Rainfall depth of past 1h",
+    "Rainfall depth of past 24h",
+    "Season",
+    "Air temperature"
+  ),
+  SHAP = c(7, 2, 1, 0.5)
+) %>%
+  ggplot(aes(SHAP, reorder(variables, SHAP))) +
+  geom_bar(stat = "identity", fill = "grey50") +
+  labs(x = "SHAP value (impact on prediction)") +
+  theme_minimal() +
+  theme(axis.title.y = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_text(size = 9))
+
+ggsave(file="SHAP_illu.svg", plot=p, width=4, height=1.4)
+
+
+
+
+
