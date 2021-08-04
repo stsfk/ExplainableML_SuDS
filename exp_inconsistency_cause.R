@@ -19,7 +19,7 @@ load("./data/WS/ready_for_training.Rda")
 
 # CONSTANT
 tree_method = "gpu_hist"
-tree_method = "hist"
+#tree_method = "hist"
 SEED = 439759
 
 # initial split
@@ -300,7 +300,9 @@ optimization_wrapper <- function(final_model_path){
     gamma = c(0, 10),
     m = c(144L, 1440L),
     l = c(1L, 36L),
-    n = c(2L, 36L)
+    n = c(2L, 36L),
+    account_cum_rain = c(0L, 1L),
+    account_season = c(0L, 1L)
   )
   
   gsPoints = 100
@@ -336,11 +338,11 @@ optimization_wrapper <- function(final_model_path){
 }
 
 temp_path <- "./data/WS/inconsist_exp/temp"
-for (prop in c(5, 10, 20, 30)){
-  for (split in c(1:10)){
+for (prop in c(5, 10)){
+  for (split in c(1:2)){
     c(train_df, val_df) %<-% divide_train_test_data(trainable_df_splitted, prop = prop/60, strata = "peak_flow")
     
-    for (repeat_id in c(1:10)){
+    for (repeat_id in c(1:2)){
       
       # clean temp path of Bayesian opt results
       unlink(paste0(temp_path, "/*"))
