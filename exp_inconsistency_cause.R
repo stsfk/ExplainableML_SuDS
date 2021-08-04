@@ -168,7 +168,7 @@ extract_DMatrix <- function(row_index, data_feature){
 }
 
 scoringFunction <- function(eta, max_depth, min_child_weight, subsample, colsample_bytree, gamma,
-                            m, l, n,
+                            m, l, n, account_cum_rain, account_season,
                             save_model = T, 
                             option = 1) {
   
@@ -194,7 +194,7 @@ scoringFunction <- function(eta, max_depth, min_child_weight, subsample, colsamp
   ## experiment
   
   n_X_vars <- names(data_feature) %>% str_detect("^X") %>% sum() # for setting monotone_constraints
-  preprocess_cols <- c(rep(1, n_X_vars), rep(0, ncol(dtrain) - n_X_vars - 1))
+  preprocess_cols <- c(rep(1, n_X_vars), rep(0, ncol(data_feature) - n_X_vars - 1))
   
   # xgboost hyperparameters and CV training
   Pars <- list(
@@ -287,7 +287,7 @@ optimization_wrapper <- function(final_model_path){
   
   # optimization hyperparas
   initPoints <- 12 # 12 experiment
-  max_iter <- 13 # 20 experiment
+  max_iter <- 15 # 20 experiment
   patience <- 10
   plotProgress <- T
   
@@ -341,6 +341,7 @@ temp_path <- "./data/WS/inconsist_exp/temp"
 for (prop in c(5, 10)){
   for (split in c(1:2)){
     c(train_df, val_df) %<-% divide_train_test_data(trainable_df_splitted, prop = prop/60, strata = "peak_flow")
+    test_df <- test_df_splitted
     
     for (repeat_id in c(1:2)){
       
