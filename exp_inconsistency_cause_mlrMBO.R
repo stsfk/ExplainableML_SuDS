@@ -10,7 +10,8 @@ pacman::p_load(
   caret,
   rsample,
   xgboost,
-  ParBayesianOptimization
+  BayesianOptimization,
+  mlrMBO
 )
 
 # data --------------------------------------------------------------------
@@ -167,13 +168,30 @@ extract_DMatrix <- function(row_index, data_feature){
   out
 }
 
-scoringFunction <- function(eta, max_depth, min_child_weight, subsample, colsample_bytree, gamma,
-                            m, l, n, account_cum_rain, account_season,
-                            save_model = T, 
-                            option = 1) {
+
+
+
+
+scoringFunction <- function(x) {
+  
+  eta <- x["eta"]
+  max_depth <- x["max_depth"]
+  min_child_weight <- x["min_child_weight"]
+  subsample <- x["subsample"]
+  colsample_bytree <- x["colsample_bytree"]
+  gamma <- x["gamma"]
+  
+  m <- x["m"]
+  l <- x["l"]
+  n <- x["n"]
+  account_cum_rain <- x["account_cum_rain"]
+  account_season <- x["account_season"]
+  
+  # c(eta, max_depth, min_child_weight, subsample, colsample_bytree, 
+  #   gamma, m, l, n, account_cum_rain, account_season) %<-% x
   
   #  "train_df", "val_df", "test_df", and "temp_path" is from the environment
-
+  
   data_feature <- gen_feature(m, l, n, account_cum_rain, account_season, 
                               data_process, option)
   
@@ -269,7 +287,7 @@ scoringFunction <- function(eta, max_depth, min_child_weight, subsample, colsamp
   
   # output
   out <- list(
-    Score = -score,
+    Score = score,
     best_iteration = best_iteration,
     train_pred = list(train_pred),
     test_pred = list(test_pred)
@@ -277,8 +295,81 @@ scoringFunction <- function(eta, max_depth, min_child_weight, subsample, colsamp
   
   gc()
   
-  return(out)
+  return(score)
 }
+
+
+
+BayesianOptimization(scoringFunction, bounds = list(
+    eta = c(0.005, 0.1),
+    max_depth = c(2L, 10L),
+    min_child_weight = c(1L, 10L),
+    subsample = c(0.25, 1),
+    colsample_bytree = c(0.25, 1),
+    gamma = c(0, 10),
+    m = c(144L, 1440L),
+    l = c(1L, 36L),
+    n = c(2L, 36L),
+    account_cum_rain = c(0L, 1L),
+    account_season = c(0L, 1L)
+  ),
+  init_grid_dt = NULL, init_points = 20, n_iter = 1,
+  acq = "ucb", kappa = 2.576, eps = 0.0,
+  verbose = TRUE
+)
+
+
+
+
+
+
+
+
+
+
+
+c(train_df, val_df) %<-% divide_train_test_data(trainable_df_splitted, prop = 5/60, strata = "peak_flow")
+test_df <- test_df_splitted
+
+save_model = T
+option = 1
+temp_path <- "./data/WS/inconsist_exp/temp"
+
+des = generateDesign(n=2 * getNumberOfParameters(obj_fun),
+                     par.set = getParamSet(obj_fun), 
+                     fun = lhs::randomLHS)
+
+des$y = apply(des, 1, obj_fun)
+
+
+control <- makeMBOControl() %>%
+  setMBOControlTermination(., iters = 10)
+
+run <- mbo(fun = obj_fun,
+           design = des,
+           learner = makeLearner("regr.km", predict.type = "se", covtype = "matern3_2", control = list(trace = FALSE)),
+           control = control, 
+           show.info = TRUE)
+
+
+
+
+
+
+surr.km = makeLearner("regr.km", predict.type = "se", covtype = "matern3_2", control = list(trace = FALSE))
+control = makeMBOControl()
+control = setMBOControlTermination(control, iters = 2)
+control = setMBOControlInfill(control, crit = makeMBOInfillCritEI())
+
+run = mbo(obj_fun, design = des, learner = NULL, control = control, show.info = TRUE)
+
+
+control = makeMBOControl()
+control = setMBOControlTermination(control, iters = 10)
+control = setMBOControlMultiPoint(control)
+run = mbo(obj_fun, design = des, learner = surr.km, control = control, show.info = TRUE)
+
+
 
 # Experiment --------------------------------------------------------------
 
@@ -286,8 +377,8 @@ optimization_wrapper <- function(final_model_path){
   # train_df, val_df, test_df are from the environment
   
   # optimization hyperparas
-  initPoints <- 50 # 12 experiment
-  max_iter <- 100 # 20 experiment
+  initPoints <- 12 # 12 experiment
+  max_iter <- 15 # 20 experiment
   patience <- 10
   plotProgress <- T
   
@@ -305,6 +396,8 @@ optimization_wrapper <- function(final_model_path){
     account_season = c(0L, 1L)
   )
   
+  gsPoints = 100
+  
   # optimization
   optObj <- bayesOpt(
     FUN = scoringFunction, 
@@ -312,8 +405,8 @@ optimization_wrapper <- function(final_model_path){
     initPoints = initPoints,
     iters.n = 1, 
     iters.k = 1,
-    convThresh = 1e+08,
-    gsPoints = 100,
+    convThresh = 1e7,
+    gsPoints = gsPoints,
     plotProgress = plotProgress)
   
   for (iter in (initPoints + 1):max_iter) {
@@ -335,32 +428,30 @@ optimization_wrapper <- function(final_model_path){
   optObj
 }
 
-
 temp_path <- "./data/WS/inconsist_exp/temp"
-for (prop in c(5)){
-  for (split in c(1)){
-    
+for (prop in c(5, 10)){
+  for (split in c(1:2)){
     c(train_df, val_df) %<-% divide_train_test_data(trainable_df_splitted, prop = prop/60, strata = "peak_flow")
     test_df <- test_df_splitted
     
-    for (repeat_id in c(1)){
+    for (repeat_id in c(1:2)){
       
       # clean temp path of Bayesian opt results
       unlink(paste0(temp_path, "/*"))
       
       final_model_path <- paste0("./data/WS/inconsist_exp/",
-                         "prop=",prop,
-                         "split=",split,
-                         "repeat=",repeat_id,
-                         ".model")
+                                 "prop=",prop,
+                                 "split=",split,
+                                 "repeat=",repeat_id,
+                                 ".model")
       optObj <- optimization_wrapper(final_model_path)
       
       
       optObj_path <- paste0("./data/WS/inconsist_exp/",
-                         "prop=",prop,
-                         "split=",split,
-                         "repeat=",repeat_id,
-                         ".Rda")
+                            "prop=",prop,
+                            "split=",split,
+                            "repeat=",repeat_id,
+                            ".Rda")
       save(optObj, file = optObj_path)
       
     }
@@ -370,131 +461,25 @@ for (prop in c(5)){
 
 
 
-
-
-
-
-
-# recycle -----------------------------------------------------------------
-
-
-dir_path <- paste0("./data/WS/model_fits")
-dir_path <- paste0("./data/WS/model_fits/xgb_opt_")
-
-outer_repeats = 1
-inner_repeats = 1
-outer_v = 5
-inner_v = 5
-
-# cv_folds
-set.seed(SEED)
-cv_folds <- nested_cv(
-  trainable_df,
-  outside = vfold_cv(
-    v = outer_v,
-    repeats = outer_repeats,
-    strata = c("peak_flow")
+# Recycle -----------------------------------------------------------------
+obj_fun <- makeSingleObjectiveFunction(
+  fn = scoringFunction,
+  par.set = makeParamSet(
+    makeNumericParam("eta",                    lower = 0.005, upper = 0.1),
+    makeIntegerParam("max_depth",              lower= 2,      upper = 10),
+    makeIntegerParam("min_child_weight",       lower= 1,    upper = 10),
+    makeNumericParam("subsample",              lower = 0.20,  upper = 1),
+    makeNumericParam("colsample_bytree",       lower = 0.20,  upper = 1),
+    makeNumericParam("gamma",                  lower = 0,     upper = 10),
+    makeIntegerParam("m",                      lower= 144,  upper = 1440),
+    makeIntegerParam("l",                      lower= 1,    upper = 36),
+    makeIntegerParam("n",                      lower= 2,    upper = 36),
+    makeIntegerParam("account_cum_rain",       lower= 0,    upper = 1),
+    makeIntegerParam("account_season",         lower= 0,    upper = 1)
   ),
-  inside = vfold_cv(
-    v = inner_v,
-    repeats = inner_repeats,
-    strata = c("peak_flow")
-  )
+  has.simple.signature = FALSE,
+  minimize = TRUE
 )
 
-
-
-optimization_wrapper <- function(option, data_process){
-  
-  # build (if not exist) and clean the folder containing the simulation result
-  
-  dir_path <- paste0("./data/SHC/model_fits/xgb_opt_",option)
-  
-  if (!dir.exists(dir_path)){
-    dir.create(dir_path)
-  }
-  unlink(paste0(dir_path, "/*"))
-  
-  # optimization hyperparas
-  initPoints <- 50 # 12 experiment
-  max_iter <- 100 # 100 experiment
-  patience <- 50
-  plotProgress <- T
-  
-  bounds <- list(
-    eta = c(0.005, 0.1),
-    max_depth = c(2L, 10L),
-    min_child_weight = c(1L, 10L),
-    subsample = c(0.25, 1),
-    colsample_bytree = c(0.25, 1),
-    gamma = c(0, 10),
-    m = c(144L, 1440L),
-    l = c(1L, 36L),
-    n = c(2L, 36L)
-  )
-  
-  gsPoints = 100
-  
-  # optimization
-  optObj <- bayesOpt(
-    FUN = scoringFunction, 
-    bounds = bounds, 
-    initPoints = initPoints,
-    iters.n = 1, 
-    iters.k = 1,
-    convThresh = 1e7,
-    gsPoints = gsPoints,
-    plotProgress = plotProgress)
-  
-  for (iter in (initPoints + 2):max_iter){
-    optObj <- updateGP(optObj)
-    optObj <- addIterations(optObj, iters.n = 1, iters.k = 1)
-    if ((iter - which.max(optObj$scoreSummary$Score))>patience && iter > (patience + initPoints)){
-      # early stop if no improvement > patience, and iter > patience + initPoints
-      break
-    }
-  }
-  
-  optObj
-}
-
-
-
-
-if (!dir.exists(dir_path)){
-  dir.create(dir_path)
-}
-
-dir_path <- paste0("./data/WS/inconsist_exp/",
-                   "prop=",prop,
-                   "split=",split,
-                   "repeat=",repeat_id,
-                   ".model")
-
-
-eval_grid <- expand.grid(
-  prop = c(5, 10, 20, 30),
-  split = c(1:10),
-  repeat_id = c(1:10)
-)
-
-df <- trainable_df_splitted
-prop <- 5/60
-strata <- "peak_flow"
-
-c(train_df, val_df)  %<-% divide_train_test_data(df, prop, strata)
-test_df <- test_df_splitted
-
-
-
-
-
-
-
-
-
-
-scoringFunction(eta, max_depth, min_child_weight, subsample, colsample_bytree, gamma,
-                m, l, n, dir_path)
 
 
