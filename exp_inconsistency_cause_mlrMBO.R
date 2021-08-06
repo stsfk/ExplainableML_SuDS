@@ -398,82 +398,108 @@ opt_wrapper <- function(train_df,
   run
 }
 
+# Experiment --------------------------------------------------------------
 
 option = 1
 temp_path <- "./data/WS/inconsist_exp/temp"
 
-unlink(paste0(temp_path, "/*"))
+for (prop in c(5)) {
+  for (split in c(1:1)) {
+    
+    # prepare temporal path for experiments
+    unlink(paste0(temp_path, "/*"))
 
-prop <- 5
-split <- 2
-repeat_id <- 1
+    # split
+    c(train_df, val_df) %<-% divide_train_test_data(trainable_df_splitted,
+                                                    prop = prop / 60,
+                                                    strata = "peak_flow")
+    test_df <- test_df_splitted
+    
+    save(
+      train_df,
+      val_df,
+      test_df,
+      file = paste0(
+        "./data/WS/inconsist_exp/split_",
+        "prop=",
+        prop,
+        "split=",
+        split,
+        ".Rda"
+      )
+    )
+    
+    for (repeat_id in c(1:1)) {
+      # prepare run
+      final_model_path <- paste0(
+        "./data/WS/inconsist_exp/",
+        "prop=",
+        prop,
+        "split=",
+        split,
+        "repeat=",
+        repeat_id,
+        ".model"
+      )
+      
+      final_gof_path <- paste0(
+        "./data/WS/inconsist_exp/gof_",
+        "prop=",
+        prop,
+        "split=",
+        split,
+        "repeat=",
+        repeat_id,
+        ".Rda"
+      )
+      
+      final_data_path <- paste0(
+        "./data/WS/inconsist_exp/data_",
+        "prop=",
+        prop,
+        "split=",
+        split,
+        "repeat=",
+        repeat_id
+      )
+      
+      run_path <- paste0(
+        "./data/WS/inconsist_exp/run_",
+        "prop=",
+        prop,
+        "split=",
+        split,
+        "repeat=",
+        repeat_id,
+        ".Rda"
+      )
+      
+      # run optimization
+      run <- opt_wrapper(
+        train_df,
+        val_df,
+        test_df,
+        save_results = T,
+        final_model_path,
+        final_gof_path,
+        run_path,
+        n_iter = 100
+      )
+      
+      # save datasets used in training and assessment
+      save_dMatrix(run$x,
+                   final_data_path,
+                   train_df,
+                   val_df,
+                   test_df)
+    }
+  }
+}
 
-# split
-c(train_df, val_df) %<-% divide_train_test_data(trainable_df_splitted, prop = prop/60, strata = "peak_flow")
-test_df <- test_df_splitted
-
-save(
-  train_df,
-  val_df,
-  test_df,
-  file = paste0(
-    "./data/WS/inconsist_exp/split_",
-    "prop=",
-    prop,
-    "split=",
-    split,
-    "repeat=",
-    repeat_id,
-    ".Rda"
-  )
-)
-
-# prepare run
-final_model_path <- paste0("./data/WS/inconsist_exp/",
-                           "prop=",prop,
-                           "split=",split,
-                           "repeat=",repeat_id,
-                           ".model")
-
-final_gof_path <- paste0("./data/WS/inconsist_exp/gof_",
-                           "prop=",prop,
-                           "split=",split,
-                           "repeat=",repeat_id,
-                           ".Rda")
-
-final_data_path <- paste0("./data/WS/inconsist_exp/data_",
-                         "prop=",prop,
-                         "split=",split,
-                         "repeat=",repeat_id)
-
-run_path <- paste0("./data/WS/inconsist_exp/run_",
-                      "prop=",prop,
-                      "split=",split,
-                      "repeat=",repeat_id,
-                      ".Rda")
-
-# run optimization
-run <- opt_wrapper(
-  train_df,
-  val_df,
-  test_df,
-  save_results = T,
-  final_model_path = final_model_path,
-  run_path = run_path
-)
-
-# save data
-save_dMatrix(run$x,
-             final_data_path,
-             train_df,
-             val_df,
-             test_df)
 
 
 
-
-
-
+# Recycle -----------------------------------------------------------------
 
 
 xgb.DMatrix.save()
@@ -505,48 +531,5 @@ run <- mbo(fun = obj_fun,
 
 
 run$best.ind
-
-
-
-# Experiment --------------------------------------------------------------
-
-
-
-temp_path <- "./data/WS/inconsist_exp/temp"
-for (prop in c(5, 10)){
-  for (split in c(1:2)){
-    c(train_df, val_df) %<-% divide_train_test_data(trainable_df_splitted, prop = prop/60, strata = "peak_flow")
-    test_df <- test_df_splitted
-    
-    for (repeat_id in c(1:2)){
-      
-      # clean temp path of Bayesian opt results
-      unlink(paste0(temp_path, "/*"))
-      
-      final_model_path <- paste0("./data/WS/inconsist_exp/",
-                                 "prop=",prop,
-                                 "split=",split,
-                                 "repeat=",repeat_id,
-                                 ".model")
-      optObj <- optimization_wrapper(final_model_path)
-      
-      
-      run_path <- paste0("./data/WS/inconsist_exp/",
-                            "prop=",prop,
-                            "split=",split,
-                            "repeat=",repeat_id,
-                            ".Rda")
-      save(optObj, file = run_path)
-      
-    }
-  }
-}
-
-
-
-
-# Recycle -----------------------------------------------------------------
-
-
 
 
