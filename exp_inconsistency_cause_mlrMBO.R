@@ -22,6 +22,10 @@ tree_method = "gpu_hist"
 #tree_method = "hist"
 SEED = 439759
 
+# remove zero runoff event
+trainable_df <- trainable_df %>%
+  filter(peak_flow != 0)
+
 # initial split
 initial_fold <- initial_split(trainable_df, prop = 60/100, strata = c("peak_flow"))
 
@@ -403,12 +407,9 @@ opt_wrapper <- function(train_df,
 option = 1
 temp_path <- "./data/WS/inconsist_exp/temp"
 
-for (prop in c(5)) {
-  for (split in c(1:1)) {
+for (prop in c(5,10,20,30)) {
+  for (split in c(1:10)) {
     
-    # prepare temporal path for experiments
-    unlink(paste0(temp_path, "/*"))
-
     # split
     c(train_df, val_df) %<-% divide_train_test_data(trainable_df_splitted,
                                                     prop = prop / 60,
@@ -429,7 +430,11 @@ for (prop in c(5)) {
       )
     )
     
-    for (repeat_id in c(1:1)) {
+    for (repeat_id in c(1:10)) {
+      
+      # prepare temporal path for experiments
+      unlink(paste0(temp_path, "/*"))
+      
       # prepare run
       final_model_path <- paste0(
         "./data/WS/inconsist_exp/",
