@@ -332,6 +332,14 @@ save_dMatrix <- function(x,
   xgboost::xgb.DMatrix.save(dval, fname = paste0(final_data_path, "dval.data"))
   xgboost::xgb.DMatrix.save(dtest, fname = paste0(final_data_path, "dtest.data"))
   xgboost::xgb.DMatrix.save(dtrain_val, fname = paste0(final_data_path, "dtrain_val.data"))
+  
+  write.table(
+    names(data_feature[-1]),
+    file = paste0(final_data_path, "feature_name.csv"),
+    quote = F,
+    row.names = F,
+    col.names = F
+  )
 }
 
 obj_fun <- makeSingleObjectiveFunction(
