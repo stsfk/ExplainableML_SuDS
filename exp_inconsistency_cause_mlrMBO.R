@@ -10,7 +10,6 @@ pacman::p_load(
   caret,
   rsample,
   xgboost,
-  BayesianOptimization,
   mlrMBO
 )
 
@@ -168,29 +167,23 @@ extract_DMatrix <- function(row_index, data_feature){
   out
 }
 
-
-
-
-
-scoringFunction <- function(x) {
-  
-  eta <- x["eta"]
-  max_depth <- x["max_depth"]
-  min_child_weight <- x["min_child_weight"]
-  subsample <- x["subsample"]
-  colsample_bytree <- x["colsample_bytree"]
-  gamma <- x["gamma"]
-  
-  m <- x["m"]
-  l <- x["l"]
-  n <- x["n"]
-  account_cum_rain <- x["account_cum_rain"]
-  account_season <- x["account_season"]
-  
-  # c(eta, max_depth, min_child_weight, subsample, colsample_bytree, 
-  #   gamma, m, l, n, account_cum_rain, account_season) %<-% x
+scoringFunction <- function(x, save_model = T) {
   
   #  "train_df", "val_df", "test_df", and "temp_path" is from the environment
+  
+  eta <- x["eta"] %>% unlist()
+  max_depth <- x["max_depth"] %>% unlist()
+  min_child_weight <- x["min_child_weight"] %>% unlist()
+  subsample <- x["subsample"] %>% unlist()
+  colsample_bytree <- x["colsample_bytree"] %>% unlist()
+  gamma <- x["gamma"] %>% unlist()
+  
+  m <- x["m"] %>% unlist()
+  l <- x["l"] %>% unlist()
+  n <- x["n"] %>% unlist()
+  account_cum_rain <- x["account_cum_rain"] %>% unlist()
+  account_season <- x["account_season"] %>% unlist()
+  
   
   data_feature <- gen_feature(m, l, n, account_cum_rain, account_season, 
                               data_process, option)
@@ -276,16 +269,7 @@ scoringFunction <- function(x) {
     pred = predict(xgbFit, dtest)) %>%
     arrange(datetime)
   
-  # save model
-  if (save_model){
-    
-    model_id <- (list.files(temp_path) %>% length()) + 1
-    file_path <- paste0(temp_path, "/model_",model_id,".model")
-    
-    xgb.save(model = xgbFit, fname = file_path)
-  }
-  
-  # output
+  # summary
   out <- list(
     Score = score,
     best_iteration = best_iteration,
@@ -293,32 +277,197 @@ scoringFunction <- function(x) {
     test_pred = list(test_pred)
   )
   
+  # save model
+  if (save_model){
+    
+    model_id <- (list.files(temp_path, pattern = "\\.model$") %>% length()) + 1
+    file_path <- paste0(temp_path, "/model_",model_id,".model")
+    xgb.save(model = xgbFit, fname = file_path)
+    
+    file_path <- paste0(temp_path, "/gof_",model_id,".Rda")
+    save(out, file = file_path)
+  }
+  
+  # output
   gc()
   
   return(score)
 }
 
+save_dMatrix <- function(x,
+                         final_data_path,
+                         train_df,
+                         val_df,
+                         test_df){
+  
+  m <- x["m"] %>% unlist()
+  l <- x["l"] %>% unlist()
+  n <- x["n"] %>% unlist()
+  account_cum_rain <- x["account_cum_rain"] %>% unlist()
+  account_season <- x["account_season"] %>% unlist()
+  
+  
+  data_feature <- gen_feature(m, l, n, account_cum_rain, account_season, 
+                              data_process, option)
+  
+  c(train_index, val_index, test_index) %<-% {
+    list(train_df, val_df, test_df) %>%
+      lapply(function(x)
+        unlist(x$record_id))
+  }
+  
+  c(dtrain, dval, dtest, dtrain_val) %<-% {
+    list(train_index,
+         val_index,
+         test_index,
+         c(train_index, val_index)) %>%
+      lapply(extract_DMatrix, data_feature = data_feature)
+  }
+  
+  xgboost::xgb.DMatrix.save(dtrain, fname = paste0(final_data_path, "dtrain.data"))
+  xgboost::xgb.DMatrix.save(dval, fname = paste0(final_data_path, "dval.data"))
+  xgboost::xgb.DMatrix.save(dtest, fname = paste0(final_data_path, "dtest.data"))
+  xgboost::xgb.DMatrix.save(dtrain_val, fname = paste0(final_data_path, "dtrain_val.data"))
+}
 
-
-BayesianOptimization(scoringFunction, bounds = list(
-    eta = c(0.005, 0.1),
-    max_depth = c(2L, 10L),
-    min_child_weight = c(1L, 10L),
-    subsample = c(0.25, 1),
-    colsample_bytree = c(0.25, 1),
-    gamma = c(0, 10),
-    m = c(144L, 1440L),
-    l = c(1L, 36L),
-    n = c(2L, 36L),
-    account_cum_rain = c(0L, 1L),
-    account_season = c(0L, 1L)
+obj_fun <- makeSingleObjectiveFunction(
+  fn = scoringFunction,
+  par.set = makeParamSet(
+    makeNumericParam("eta",                    lower = 0.005, upper = 0.1),
+    makeIntegerParam("max_depth",              lower= 2,      upper = 10),
+    makeIntegerParam("min_child_weight",       lower= 1,    upper = 10),
+    makeNumericParam("subsample",              lower = 0.20,  upper = 1),
+    makeNumericParam("colsample_bytree",       lower = 0.20,  upper = 1),
+    makeNumericParam("gamma",                  lower = 0,     upper = 10),
+    makeIntegerParam("m",                      lower= 144,  upper = 1440),
+    makeIntegerParam("l",                      lower= 1,    upper = 36),
+    makeIntegerParam("n",                      lower= 2,    upper = 36),
+    makeIntegerParam("account_cum_rain",       lower= 0,    upper = 1),
+    makeIntegerParam("account_season",         lower= 0,    upper = 1)
   ),
-  init_grid_dt = NULL, init_points = 20, n_iter = 1,
-  acq = "ucb", kappa = 2.576, eps = 0.0,
-  verbose = TRUE
+  has.simple.signature = FALSE,
+  minimize = TRUE
 )
 
 
+opt_wrapper <- function(train_df,
+                        val_df,
+                        test_df,
+                        save_results = T,
+                        final_model_path = NULL,
+                        final_gof_path = NULL,
+                        run_path = NULL,
+                        n_iter = 100) {
+  
+  des = generateDesign(
+    n = 4 * getNumberOfParameters(obj_fun),
+    par.set = getParamSet(obj_fun),
+    fun = lhs::randomLHS
+  )
+  
+  des$y = apply(des, 1, obj_fun)
+  
+  
+  control <- makeMBOControl() %>%
+    setMBOControlTermination(., iters = n_iter - 4 * getNumberOfParameters(obj_fun))
+  
+  run <- mbo(
+    fun = obj_fun,
+    learner = makeLearner(
+      "regr.km",
+      predict.type = "se",
+      covtype = "matern3_2",
+      control = list(trace = FALSE)
+    ),
+    design = des,
+    control = control,
+    show.info = TRUE
+  )
+  
+  # save results
+  if (save_results) {
+    file.copy(from = paste0(temp_path, "/model_", run$best.ind, ".model"),
+              to = final_model_path)
+    
+    file.copy(from = paste0(temp_path, "/gof_", run$best.ind, ".Rda"),
+              to = final_gof_path)
+    
+    save(run, file = run_path)
+  }
+  
+  run
+}
+
+
+option = 1
+temp_path <- "./data/WS/inconsist_exp/temp"
+
+unlink(paste0(temp_path, "/*"))
+
+prop <- 5
+split <- 2
+repeat_id <- 1
+
+# split
+c(train_df, val_df) %<-% divide_train_test_data(trainable_df_splitted, prop = prop/60, strata = "peak_flow")
+test_df <- test_df_splitted
+
+save(
+  train_df,
+  val_df,
+  test_df,
+  file = paste0(
+    "./data/WS/inconsist_exp/split_",
+    "prop=",
+    prop,
+    "split=",
+    split,
+    "repeat=",
+    repeat_id,
+    ".Rda"
+  )
+)
+
+# prepare run
+final_model_path <- paste0("./data/WS/inconsist_exp/",
+                           "prop=",prop,
+                           "split=",split,
+                           "repeat=",repeat_id,
+                           ".model")
+
+final_gof_path <- paste0("./data/WS/inconsist_exp/gof_",
+                           "prop=",prop,
+                           "split=",split,
+                           "repeat=",repeat_id,
+                           ".Rda")
+
+final_data_path <- paste0("./data/WS/inconsist_exp/data_",
+                         "prop=",prop,
+                         "split=",split,
+                         "repeat=",repeat_id)
+
+run_path <- paste0("./data/WS/inconsist_exp/run_",
+                      "prop=",prop,
+                      "split=",split,
+                      "repeat=",repeat_id,
+                      ".Rda")
+
+# run optimization
+run <- opt_wrapper(
+  train_df,
+  val_df,
+  test_df,
+  save_results = T,
+  final_model_path = final_model_path,
+  run_path = run_path
+)
+
+# save data
+save_dMatrix(run$x,
+             final_data_path,
+             train_df,
+             val_df,
+             test_df)
 
 
 
@@ -327,6 +476,7 @@ BayesianOptimization(scoringFunction, bounds = list(
 
 
 
+xgb.DMatrix.save()
 
 c(train_df, val_df) %<-% divide_train_test_data(trainable_df_splitted, prop = 5/60, strata = "peak_flow")
 test_df <- test_df_splitted
@@ -335,7 +485,7 @@ save_model = T
 option = 1
 temp_path <- "./data/WS/inconsist_exp/temp"
 
-des = generateDesign(n=2 * getNumberOfParameters(obj_fun),
+des = generateDesign(n=4 * getNumberOfParameters(obj_fun),
                      par.set = getParamSet(obj_fun), 
                      fun = lhs::randomLHS)
 
@@ -354,79 +504,13 @@ run <- mbo(fun = obj_fun,
 
 
 
-
-
-surr.km = makeLearner("regr.km", predict.type = "se", covtype = "matern3_2", control = list(trace = FALSE))
-control = makeMBOControl()
-control = setMBOControlTermination(control, iters = 2)
-control = setMBOControlInfill(control, crit = makeMBOInfillCritEI())
-
-run = mbo(obj_fun, design = des, learner = NULL, control = control, show.info = TRUE)
-
-
-control = makeMBOControl()
-control = setMBOControlTermination(control, iters = 10)
-control = setMBOControlMultiPoint(control)
-run = mbo(obj_fun, design = des, learner = surr.km, control = control, show.info = TRUE)
+run$best.ind
 
 
 
 # Experiment --------------------------------------------------------------
 
-optimization_wrapper <- function(final_model_path){
-  # train_df, val_df, test_df are from the environment
-  
-  # optimization hyperparas
-  initPoints <- 12 # 12 experiment
-  max_iter <- 15 # 20 experiment
-  patience <- 10
-  plotProgress <- T
-  
-  bounds <- list(
-    eta = c(0.005, 0.1),
-    max_depth = c(2L, 10L),
-    min_child_weight = c(1L, 10L),
-    subsample = c(0.25, 1),
-    colsample_bytree = c(0.25, 1),
-    gamma = c(0, 10),
-    m = c(144L, 1440L),
-    l = c(1L, 36L),
-    n = c(2L, 36L),
-    account_cum_rain = c(0L, 1L),
-    account_season = c(0L, 1L)
-  )
-  
-  gsPoints = 100
-  
-  # optimization
-  optObj <- bayesOpt(
-    FUN = scoringFunction, 
-    bounds = bounds, 
-    initPoints = initPoints,
-    iters.n = 1, 
-    iters.k = 1,
-    convThresh = 1e7,
-    gsPoints = gsPoints,
-    plotProgress = plotProgress)
-  
-  for (iter in (initPoints + 1):max_iter) {
-    optObj <- updateGP(optObj)
-    optObj <- addIterations(optObj, iters.n = 1, iters.k = 1)
-    if ((iter - which.max(optObj$scoreSummary$Score)) > patience &&
-        iter > (patience + initPoints)) {
-      # early stop if no improvement > patience, and iter > patience + initPoints
-      break
-    }
-  }
-  
-  # post-process opt results
-  best_model_id <- optObj$scoreSummary$Score %>% which.max()
-  
-  file.copy(from = paste0(temp_path, "/model_", best_model_id, ".model"),
-            to = final_model_path)
-  
-  optObj
-}
+
 
 temp_path <- "./data/WS/inconsist_exp/temp"
 for (prop in c(5, 10)){
@@ -447,12 +531,12 @@ for (prop in c(5, 10)){
       optObj <- optimization_wrapper(final_model_path)
       
       
-      optObj_path <- paste0("./data/WS/inconsist_exp/",
+      run_path <- paste0("./data/WS/inconsist_exp/",
                             "prop=",prop,
                             "split=",split,
                             "repeat=",repeat_id,
                             ".Rda")
-      save(optObj, file = optObj_path)
+      save(optObj, file = run_path)
       
     }
   }
@@ -462,24 +546,7 @@ for (prop in c(5, 10)){
 
 
 # Recycle -----------------------------------------------------------------
-obj_fun <- makeSingleObjectiveFunction(
-  fn = scoringFunction,
-  par.set = makeParamSet(
-    makeNumericParam("eta",                    lower = 0.005, upper = 0.1),
-    makeIntegerParam("max_depth",              lower= 2,      upper = 10),
-    makeIntegerParam("min_child_weight",       lower= 1,    upper = 10),
-    makeNumericParam("subsample",              lower = 0.20,  upper = 1),
-    makeNumericParam("colsample_bytree",       lower = 0.20,  upper = 1),
-    makeNumericParam("gamma",                  lower = 0,     upper = 10),
-    makeIntegerParam("m",                      lower= 144,  upper = 1440),
-    makeIntegerParam("l",                      lower= 1,    upper = 36),
-    makeIntegerParam("n",                      lower= 2,    upper = 36),
-    makeIntegerParam("account_cum_rain",       lower= 0,    upper = 1),
-    makeIntegerParam("account_season",         lower= 0,    upper = 1)
-  ),
-  has.simple.signature = FALSE,
-  minimize = TRUE
-)
+
 
 
 
