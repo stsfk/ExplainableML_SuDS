@@ -185,14 +185,229 @@ assign_shap_time_step <- function(SHAP_m, SHAP_m_names){
   out
 }
 
+compute_importance_consistency <- function(x, thd=0){
+  # after the peak, the impact on prediction should decrease
+  x_diff <- x[which.max(x):length(x)] %>%
+    diff()
+  
+  if (max(x_diff) <= thd){
+    out1 <- T
+  } else {
+    out1 <- F
+  }
+  
+  # before the peak, the impact on prediction should increase
+  if (which.max(x) > 1){
+    x_diff2 <- x[1:which.max(x)] %>%
+      diff()
+  } else {
+    x_diff2 <- x[1]
+  }
+  
+  if (min(x_diff2) >= -thd){
+    out2 <- T
+  } else {
+    out2 <- F
+  }
+  
+  # if consistent, out1 and out2 should both be true
+  all(out1, out2)
+}
+
+consistency_gof_wrapper <- function(prop,split,repeat_id){
+  load("./data/WS/ready_for_training.Rda")
+  
+  # prepare run
+  final_model_path <- paste0(
+    "./data/WS/inconsist_exp/",
+    "prop=",
+    prop,
+    "split=",
+    split,
+    "repeat=",
+    repeat_id,
+    ".model"
+  )
+  
+  final_gof_path <- paste0(
+    "./data/WS/inconsist_exp/gof_",
+    "prop=",
+    prop,
+    "split=",
+    split,
+    "repeat=",
+    repeat_id,
+    ".Rda"
+  )
+  
+  final_data_path <- paste0(
+    "./data/WS/inconsist_exp/data_",
+    "prop=",
+    prop,
+    "split=",
+    split,
+    "repeat=",
+    repeat_id
+  )
+  
+  run_path <- paste0(
+    "./data/WS/inconsist_exp/run_",
+    "prop=",
+    prop,
+    "split=",
+    split,
+    "repeat=",
+    repeat_id,
+    ".Rda"
+  )
+  
+  # load model
+  model <- xgboost::xgb.load(final_model_path)
+  
+  # load run results
+  load(run_path)
+  run$x
+  
+  # load data
+  dtest <- xgboost::xgb.DMatrix(paste0(final_data_path, "dtest.data"))
+  ob <- xgboost::getinfo(dtest, "label")
+  
+  pred <- predict(model, dtest)
+  SHAP_m <- predict(model, dtest, predcontrib=T)
+  
+  # analysis
+  
+  feature_name <-
+    read.csv(paste0(final_data_path, "feature_name.csv")) %>% unlist() %>% unname()
+  SHAP_m_names <- c(feature_name, "bias")
+  
+  importance_df <- assign_shap_time_step(abs(SHAP_m), SHAP_m_names)
+  
+  
+  # return results
+  
+  tibble(
+    consistency = compute_importance_consistency(abs(importance_df$shap), 0),
+    nse = hydroGOF::NSE(pred, ob),
+    r2 = caret::R2(pred, ob),
+    rmse = hydroGOF::rmse(pred,ob),
+    importance_df = list(importance_df)
+  )
+}
+
 
 # data --------------------------------------------------------------------
 
-load("./data/WS/ready_for_training.Rda")
 
 prop <- 5
-split <- 1
+split <- 8
 repeat_id <- 2
+
+consistency_gof_wrapper(prop,split,repeat_id)
+
+
+
+
+
+
+
+
+
+
+
+
+# recycle -----------------------------------------------------------------
+
+
+
+
+
+for (prop in c(5)){
+  for (split in c(1:10)){
+    for (repeat_id in c(1:10)){
+      
+      # prepare run
+      final_model_path <- paste0(
+        "./data/WS/inconsist_exp/",
+        "prop=",
+        prop,
+        "split=",
+        split,
+        "repeat=",
+        repeat_id,
+        ".model"
+      )
+      
+      final_gof_path <- paste0(
+        "./data/WS/inconsist_exp/gof_",
+        "prop=",
+        prop,
+        "split=",
+        split,
+        "repeat=",
+        repeat_id,
+        ".Rda"
+      )
+      
+      final_data_path <- paste0(
+        "./data/WS/inconsist_exp/data_",
+        "prop=",
+        prop,
+        "split=",
+        split,
+        "repeat=",
+        repeat_id
+      )
+      
+      run_path <- paste0(
+        "./data/WS/inconsist_exp/run_",
+        "prop=",
+        prop,
+        "split=",
+        split,
+        "repeat=",
+        repeat_id,
+        ".Rda"
+      )
+      
+      # load model
+      model <- xgboost::xgb.load(final_model_path)
+      
+      # load run results
+      load(run_path)
+      run$x
+      
+      # load data
+      dtest <- xgboost::xgb.DMatrix(paste0(final_data_path, "dtest.data"))
+      ob <- xgboost::getinfo(dtest, "label")
+      
+      pred <- predict(model, dtest)
+      SHAP_m <- predict(model, dtest, predcontrib=T)
+      
+      # gof
+      
+      NSE(pred, ob)
+      
+      # analysis
+      
+      feature_name <-
+        read.csv(paste0(final_data_path, "feature_name.csv")) %>% unlist() %>% unname()
+      SHAP_m_names <- c(feature_name, "bias")
+      
+      
+      x <- abs(out$shap)
+      compute_importance_consistency(x, 0)
+      
+      
+      out <- assign_shap_time_step(abs(SHAP_m), SHAP_m_names)
+      
+      
+      
+      
+    }
+  }
+}
+
 
 # prepare run
 final_model_path <- paste0(
@@ -253,14 +468,38 @@ ob <- xgboost::getinfo(dtest, "label")
 pred <- predict(model, dtest)
 SHAP_m <- predict(model, dtest, predcontrib=T)
 
+# gof
+
+NSE(pred, ob)
+
+# analysis
+
 feature_name <-
   read.csv(paste0(final_data_path, "feature_name.csv")) %>% unlist() %>% unname()
 SHAP_m_names <- c(feature_name, "bias")
 
-
 out <- assign_shap_time_step(abs(SHAP_m), SHAP_m_names)
+
+
+
+
+
+
+
+
 
 
 ggplot(out, aes(time_step, shap)) +
   geom_line() +
   scale_x_log10()
+
+
+
+
+
+x <- abs(out$shap)
+compute_importance_consistency(x, 0)
+
+
+
+
