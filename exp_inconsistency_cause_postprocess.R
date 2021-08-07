@@ -295,9 +295,7 @@ consistency_gof_wrapper <- function(prop,split,repeat_id){
   )
 }
 
-
 # data --------------------------------------------------------------------
-
 
 prop <- 5
 split <- 8
@@ -305,10 +303,34 @@ repeat_id <- 2
 
 consistency_gof_wrapper(prop,split,repeat_id)
 
+eval_grid <- expand.grid(
+  prop = 5,
+  split = 1:10,
+  repeat_id = 1:10
+)
 
 
+asses_results <- vector("list", nrow(eval_grid))
+for (i in 1:nrow(eval_grid)){
+  prop <- eval_grid$prop[i]
+  split <- eval_grid$split[i]
+  repeat_id <- eval_grid$repeat_id[i]
+  
+  asses_results[[i]] <- consistency_gof_wrapper(prop,split,repeat_id)
+}
 
 
+data_plot <- asses_results %>%
+  bind_rows() %>%
+  bind_cols(eval_grid)
+
+
+data_plot %>%
+  ggplot(aes(nse, consistency)) +
+  geom_boxplot() +
+  geom_point()+
+  facet_wrap(~split)+
+  coord_flip()
 
 
 
@@ -317,10 +339,6 @@ consistency_gof_wrapper(prop,split,repeat_id)
 
 
 # recycle -----------------------------------------------------------------
-
-
-
-
 
 for (prop in c(5)){
   for (split in c(1:10)){
@@ -407,7 +425,6 @@ for (prop in c(5)){
     }
   }
 }
-
 
 # prepare run
 final_model_path <- paste0(
