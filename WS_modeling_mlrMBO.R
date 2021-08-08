@@ -320,7 +320,6 @@ scoringFunction <- function(x,
   return(min(xgbcv$evaluation_log$test_rmse_mean))
 }
 
-
 save_dMatrix <- function(x, final_data_path) {
   # outer_i, data_process, cv_folds, option are from global
   
@@ -365,7 +364,6 @@ save_dMatrix <- function(x, final_data_path) {
   )
 }
 
-
 obj_fun <- makeSingleObjectiveFunction(
   fn = scoringFunction,
   par.set = makeParamSet(
@@ -385,17 +383,11 @@ obj_fun <- makeSingleObjectiveFunction(
   minimize = TRUE
 )
 
-
-
 opt_wrapper <- function(option,
                         outer_i,
                         cv_folds,
                         data_process,
-                        n_iter = 50,
-                        final_model_path = NULL,
-                        final_gof_path = NULL,
-                        run_path = NULL,
-                        save_results = T) {
+                        n_iter = 100) {
   # build (if not exist) and clean the folder containing the simulation result
   
   des = generateDesign(
@@ -422,8 +414,68 @@ opt_wrapper <- function(option,
     show.info = TRUE
   )
   
-  # save results
-  if (save_results) {
+  run
+}
+
+
+
+# Optimization ------------------------------------------------------------
+
+
+for (option in 1:1){
+  for (outer_i in 1:5){
+    
+    # prepare running
+    temp_path <- paste0("./data/WS/model_fits/xgb_opt_", option, "_iter_", outer_i)
+    
+    if (!dir.exists(temp_path)) {
+      dir.create(temp_path)
+    }
+    unlink(paste0(temp_path, "/*"))
+    
+    final_gof_path <- paste0(
+      "./data/WS/model_fits/gof_",
+      "iter=",
+      outer_i,
+      "opt=",
+      option,
+      ".Rda"
+    )
+    
+    final_model_path <- paste0(
+      "./data/WS/model_fits/gof_",
+      "iter=",
+      outer_i,
+      "opt=",
+      option,
+      ".model"
+    )
+    
+    run_path <- paste0(
+      "./data/WS/model_fits/run_",
+      "iter=",
+      outer_i,
+      "opt=",
+      option,
+      ".model"
+    )
+    
+    final_data_path <- paste0(
+      "./data/WS/model_fits/iter=",
+      outer_i,
+      "opt=",
+      option
+    )
+    
+    # run simulation
+    run <- opt_wrapper(
+      option,
+      outer_i,
+      cv_folds,
+      data_process
+    )
+    
+    # save results
     file.copy(from = paste0(temp_path, "/model_", run$best.ind, ".model"),
               to = final_model_path)
     
@@ -431,108 +483,12 @@ opt_wrapper <- function(option,
               to = final_gof_path)
     
     save(run, file = run_path)
+    
+    
+    save_dMatrix(run$x, final_data_path)
   }
-  
-  run
 }
 
 
-
-
-
-
-temp_path <- paste0("./data/WS/model_fits/xgb_opt_", option, "_iter_", outer_i)
-
-if (!dir.exists(temp_path)) {
-  dir.create(temp_path)
-}
-unlink(paste0(temp_path, "/*"))
-
-final_gof_path <- paste0(
-  "./data/WS/model_fits/gof_",
-  "iter=",
-  outer_i,
-  "opt=",
-  option,
-  ".Rda"
-)
-
-final_model_path <- paste0(
-  "./data/WS/model_fits/gof_",
-  "iter=",
-  outer_i,
-  "opt=",
-  option,
-  ".model"
-)
-
-run_path <- paste0(
-  "./data/WS/model_fits/run_",
-  "iter=",
-  outer_i,
-  "opt=",
-  option,
-  ".model"
-)
-
-final_data_path <- paste0(
-  "./data/WS/model_fits/iter=",
-  outer_i,
-  "opt=",
-  option
-)
-
-run <- opt_wrapper(
-  option,
-  outer_i,
-  cv_folds,
-  data_process,
-  n_iter = 100,
-  final_model_path = NULL,
-  final_gof_path = NULL,
-  run_path = NULL,
-  save_results = T
-)
-
-save_dMatrix(run$x, final_data_path)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# Optimization ------------------------------------------------------------
-
-eval_grid <- expand.grid(option = 1:4,
-                         outer_i = c(1:5)) %>%
-  as_tibble()
-
-optObjs <- vector("list", nrow(eval_grid))
-
-for (i in 1:nrow(eval_grid)){
-  option <- eval_grid$option[i]
-  outer_i <- eval_grid$outer_i[i]
-  
-  optObj <- optimization_wrapper(option, outer_i, cv_folds, data_process)
-  
-  fname <- paste0("./data/WS/model_fits/xgb_opt_", option, "_iter_", outer_i, ".Rda")
-  save(optObj, file = fname)
-  
-  optObjs[[i]] <- optObj
-}
-
-save(optObjs, file = "./data/WS/model_fits/optObjs.Rda")
 
 
