@@ -457,7 +457,7 @@ for (option in 1:1){
       outer_i,
       "opt=",
       option,
-      ".model"
+      ".run"
     )
     
     final_data_path <- paste0(

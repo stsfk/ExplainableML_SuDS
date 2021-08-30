@@ -10,7 +10,8 @@ pacman::p_load(
   caret,
   rsample,
   xgboost,
-  mlrMBO
+  mlrMBO,
+  recipes
 )
 
 # data --------------------------------------------------------------------
@@ -202,8 +203,7 @@ prepare_train_test_data <- function(m, l, n, account_cum_rain, account_season,
 # outer_i, cv_folds, data_process, option, and tree_method are defined outside
 # the scoringFunction, so bayesOpt do not need other parameters
 scoringFunction <- function(x,
-                            save_model = T,
-                            best_iteration_correction = F) {
+                            save_model = T) {
   # This function calls 'prepare_train_test_data', which calls 'gen_feature',
   # which calls 'feature_vector' and 'gen_s_e'.
   # inner_v is from global
@@ -221,7 +221,10 @@ scoringFunction <- function(x,
   
   
   # train linear regression model
-  recipe <- recipe(Y ~ ., data = dtrain) 
+  recipe <- recipe(Y ~ ., data = dtrain)
+  
+  # convert index of val samples to index of train samples
+  val <- lapply(val, function(x) setdiff(1:nrow(dtrain), x))
   
   ctrl <- trainControl(
     method = "cv",
@@ -242,77 +245,32 @@ scoringFunction <- function(x,
   # prepare output
   coefficients <- ModelFit$finalModel$coefficients
   
-  val_rmse <- ModelFit$resample$RMSE %>% mean()
   test_pred <- tibble(
     datetime = data_process$datetime[test_index],
     ob = dtest$Y,
     pred = predict(ModelFit, dtest))
   
-  
-  test_rmse <- hydroGOF::gof(sim = test_pred$pred, obs = test_pred$ob, digits = 10)[4]
-  
-  # output
-  out <- list(
-    Score = -val_rmse,
-    test_rmse = test_rmse,
-    coefficients = list(coefficients),
-    test_pred = list(test_pred)
-  )
-  
-
-  
-  
-  
-  # train model on all training_outer fold
-  pred_df <- list()
-  
-  if (best_iteration_correction){
-    best_iteration <- round(xgbcv$best_iteration/(1-1/inner_v))
-  } else {
-    best_iteration <- xgbcv$best_iteration
-  }
-  
-  watchlist <- NULL
-  xgbFit <- xgb.train(
-    data = dtrain,
-    objective = "reg:squarederror",
-    tree_method = tree_method,
-    max_bin = 256,
-    nround = best_iteration,
-    verbose = 0,
-    params = Pars,
-    monotone_constraints = preprocess_cols
-  )
-  
-  # predictions
   train_pred <- tibble(
     datetime = data_process$datetime[train_index],
-    ob = getinfo(dtrain, "label"),
-    pred = predict(xgbFit, dtrain))
+    ob = dtrain$Y,
+    pred = predict(ModelFit, dtrain))
   
-  test_pred <- tibble(
-    datetime = data_process$datetime[test_index],
-    ob = getinfo(dtest, "label"),
-    pred = predict(xgbFit, dtest))
-  # train_pred <- 1 experiment
-  # test_pred <- 1 experiment
+  val_rmse <- ModelFit$resample$RMSE %>% mean()
+  test_rmse <- hydroGOF::gof(sim = test_pred$pred, obs = test_pred$ob, digits = 10)[4]
   
   # summary
   out <- list(
-    Score = -min(xgbcv$evaluation_log$test_rmse_mean),
-    nrounds = xgbcv$best_iteration,
+    Score = val_rmse,
     train_pred = list(train_pred),
-    test_pred = list(test_pred)
+    test_pred = list(test_pred),
+    coefficients = list(coefficients)
   )
   
   # save model
   if (save_model){
-    dir_path <- paste0("./data/WS/model_fits/xgb_opt_",option,"_iter_",outer_i)
+    dir_path <- paste0("./data/WS/lm_fits/lm_opt_",option,"_iter_",outer_i)
     
-    model_id <- (list.files(dir_path, pattern = "\\.model$") %>% length()) + 1
-    file_path <- paste0(dir_path, "/model_",model_id,".model")
-    xgb.save(model = xgbFit, fname = file_path)
-    
+    model_id <- (list.files(dir_path, pattern = "\\.Rda$") %>% length()) + 1
     file_path <- paste0(dir_path, "/gof_",model_id,".Rda")
     save(out, file = file_path) 
   }
@@ -321,10 +279,12 @@ scoringFunction <- function(x,
 
   gc()
   
-  return(min(xgbcv$evaluation_log$test_rmse_mean))
+  return(val_rmse)
 }
 
-save_dMatrix <- function(x, final_data_path) {
+
+
+save_data <- function(x, final_data_path) {
   # outer_i, data_process, cv_folds, option are from global
   
   m <- x["m"] %>% unlist()
@@ -347,17 +307,9 @@ save_dMatrix <- function(x, final_data_path) {
   
   feature_names <- names(dtrain)[-1]
   
-  dtrain <-
-    xgb.DMatrix(data = data.matrix(dtrain %>% dplyr::select(-Y)),
-                label = dtrain$Y)
+  save(dtrain, file = paste0(final_data_path, "dtrain.data"))
   
-  dtest <-
-    xgb.DMatrix(data = data.matrix(dtest %>% dplyr::select(-Y)),
-                label = dtest$Y)
-  
-  xgboost::xgb.DMatrix.save(dtrain, fname = paste0(final_data_path, "dtrain.data"))
-  
-  xgboost::xgb.DMatrix.save(dtest, fname = paste0(final_data_path, "dtest.data"))
+  save(dtest, file = paste0(final_data_path, "dtest.data"))
   
   write.table(
     feature_names,
@@ -368,15 +320,10 @@ save_dMatrix <- function(x, final_data_path) {
   )
 }
 
+
 obj_fun <- makeSingleObjectiveFunction(
   fn = scoringFunction,
   par.set = makeParamSet(
-    makeNumericParam("eta",                    lower = 0.005, upper = 0.1),
-    makeIntegerParam("max_depth",              lower= 2,      upper = 10),
-    makeIntegerParam("min_child_weight",       lower= 1,    upper = 10),
-    makeNumericParam("subsample",              lower = 0.20,  upper = 1),
-    makeNumericParam("colsample_bytree",       lower = 0.20,  upper = 1),
-    makeNumericParam("gamma",                  lower = 0,     upper = 10),
     makeIntegerParam("m",                      lower= 144,  upper = 1440),
     makeIntegerParam("l",                      lower= 1,    upper = 36),
     makeIntegerParam("n",                      lower= 2,    upper = 36),
@@ -430,7 +377,7 @@ for (option in 1:1){
   for (outer_i in 1:5){
     
     # prepare running
-    temp_path <- paste0("./data/WS/model_fits/xgb_opt_", option, "_iter_", outer_i)
+    temp_path <- paste0("./data/WS/lm_fits/lm_opt_", option, "_iter_", outer_i)
     
     if (!dir.exists(temp_path)) {
       dir.create(temp_path)
@@ -438,7 +385,7 @@ for (option in 1:1){
     unlink(paste0(temp_path, "/*"))
     
     final_gof_path <- paste0(
-      "./data/WS/model_fits/gof_",
+      "./data/WS/lm_fits/gof_",
       "iter=",
       outer_i,
       "opt=",
@@ -446,26 +393,17 @@ for (option in 1:1){
       ".Rda"
     )
     
-    final_model_path <- paste0(
-      "./data/WS/model_fits/gof_",
-      "iter=",
-      outer_i,
-      "opt=",
-      option,
-      ".model"
-    )
-    
     run_path <- paste0(
-      "./data/WS/model_fits/run_",
+      "./data/WS/lm_fits/run_",
       "iter=",
       outer_i,
       "opt=",
       option,
-      ".model"
+      ".run"
     )
     
     final_data_path <- paste0(
-      "./data/WS/model_fits/iter=",
+      "./data/WS/lm_fits/iter=",
       outer_i,
       "opt=",
       option
@@ -480,16 +418,12 @@ for (option in 1:1){
     )
     
     # save results
-    file.copy(from = paste0(temp_path, "/model_", run$best.ind, ".model"),
-              to = final_model_path)
-    
     file.copy(from = paste0(temp_path, "/gof_", run$best.ind, ".Rda"),
               to = final_gof_path)
     
     save(run, file = run_path)
     
-    
-    save_dMatrix(run$x, final_data_path)
+    save_data(run$x, final_data_path)
   }
 }
 
