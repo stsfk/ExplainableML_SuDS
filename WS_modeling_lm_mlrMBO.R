@@ -354,12 +354,6 @@ opt_wrapper <- function(option,
   
   run <- mbo(
     fun = obj_fun,
-    learner = makeLearner(
-      "regr.km",
-      predict.type = "se",
-      covtype = "matern3_2",
-      control = list(trace = FALSE)
-    ),
     design = des,
     control = control,
     show.info = TRUE
@@ -367,7 +361,6 @@ opt_wrapper <- function(option,
   
   run
 }
-
 
 
 # Optimization ------------------------------------------------------------

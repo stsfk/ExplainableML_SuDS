@@ -156,7 +156,7 @@ gen_feature <- function(m, l, n, account_cum_rain, account_season,
 
 
 prepare_train_test_data <- function(m, l, n, account_cum_rain, account_season,
-                                    outer_i, data_process, cv_folds, option) {
+                                    outer_i, data_process, cv_folds, option=1) {
   # extract folds from data_feature for training, validation, and testing
   training_outer <- analysis(cv_folds$splits[[outer_i]])
   test <- assessment(cv_folds$splits[[outer_i]])
@@ -343,6 +343,12 @@ save_dMatrix <- function(x, final_data_path) {
   
   feature_names <- names(dtrain)[-1]
   
+  # save data
+  train_test <- dtrain %>% 
+    bind_rows(dtest)
+  
+  write_csv(train_test, file = paste0(final_data_path, "_train_test.csv"))
+  
   dtrain <-
     xgb.DMatrix(data = data.matrix(dtrain %>% dplyr::select(-Y)),
                 label = dtrain$Y)
@@ -403,12 +409,6 @@ opt_wrapper <- function(option,
   
   run <- mbo(
     fun = obj_fun,
-    learner = makeLearner(
-      "regr.km",
-      predict.type = "se",
-      covtype = "matern3_2",
-      control = list(trace = FALSE)
-    ),
     design = des,
     control = control,
     show.info = TRUE
@@ -477,13 +477,12 @@ for (option in 1:1){
     
     # save results
     file.copy(from = paste0(temp_path, "/model_", run$best.ind, ".model"),
-              to = final_model_path)
+              to = final_model_path, overwrite = T)
     
     file.copy(from = paste0(temp_path, "/gof_", run$best.ind, ".Rda"),
-              to = final_gof_path)
+              to = final_gof_path, overwrite = T)
     
     save(run, file = run_path)
-    
     
     save_dMatrix(run$x, final_data_path)
   }
@@ -491,4 +490,12 @@ for (option in 1:1){
 
 
 
+# Recycle -----------------------------------------------------------------
+
+learner = makeLearner(
+  "regr.km",
+  predict.type = "se",
+  covtype = "matern3_2",
+  control = list(trace = FALSE)
+)
 

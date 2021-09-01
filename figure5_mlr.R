@@ -62,37 +62,11 @@ scale_colour_Publication <- function(...){
 }
 
 
-# Functions ---------------------------------------------------------------
-
-derive_gof <- function(option, outer_i){
-  load(paste0("./data/WS/model_fits/xgb_opt_", option, "_iter_", outer_i, ".Rda"))
-  
-  pred_df <- optObj$scoreSummary %>% 
-    as_tibble() %>%
-    dplyr::slice(which.max(Score)) %>% # the optimal hyperpara
-    dplyr::select(val_rmse = Score, test_pred, Epoch) %>%
-    pull(test_pred) %>%
-    .[[1]]
-  
-  out <- hydroGOF::gof(sim = pred_df$pred, obs = pred_df$ob, digits=10) %>%
-    t() %>%
-    as_tibble() %>%
-    dplyr::select(RMSE, NSE, R2) %>%
-    mutate(
-      option = as.character(option),
-      outer_i  = outer_i,
-      model = "XGBoost",
-      site = "WS") 
-  
-  out
-}
-
-
 # WS XGB ------------------------------------------------------------------
 
 eval_grid <- tibble(
-  outer_i = 1:5,
-  fpath = paste0("./data/WS/model_fits/gof_iter=", outer_i, "opt=1.Rda")
+  iter = 1:5,
+  fpath = paste0("./data/WS/model_fits/gof_iter=", iter, "opt=1.Rda")
 )
 
 outs <- vector("list", nrow(eval_grid))
@@ -121,8 +95,8 @@ WS_XGB <- outs %>%
 
 
 eval_grid <- tibble(
-  outer_i = 1:5,
-  fpath = paste0("./data/WS/lm_fits/gof_iter=", outer_i, "opt=1.Rda")
+  iter = 1:5,
+  fpath = paste0("./data/WS/lm_fits/gof_iter=", iter, "opt=1.Rda")
 )
 
 outs <- vector("list", nrow(eval_grid))
@@ -147,148 +121,37 @@ WS_LM <- outs %>%
          site = "WS")
 
 
+# SHC XGB ------------------------------------------------------------------
 
+load("./data/SHC/model_fits/gof_opt=1.Rda")
+df <- out$test_pred[[1]]
 
+ob <- df$ob
+pred <- df$pred
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-derive_gof <- function(option, outer_i){
-  load(paste0("./data/WS/lm_fits/lm_opt_", option, "_iter_", outer_i, ".Rda"))
-  
-  pred_df <- optObj$scoreSummary %>% 
-    as_tibble() %>%
-    dplyr::slice(which.max(Score)) %>% # the optimal hyperpara
-    dplyr::select(val_rmse = Score, test_pred, Epoch) %>%
-    pull(test_pred) %>%
-    .[[1]]
-  
-  out <- hydroGOF::gof(sim = pred_df$pred, obs = pred_df$ob, digits=10) %>%
-    t() %>%
-    as_tibble() %>%
-    dplyr::select(RMSE, NSE, R2) %>%
-    mutate(
-      option = as.character(option),
-      outer_i  = outer_i,
-      model = "LM",
-      site = "WS") 
-  
-  out
-}
-
-eval_grid <- expand.grid(
-  option = 1:4,
-  outer_i = 1:5
-) %>%
-  as_tibble()
-
-outs <- vector("list", nrow(eval_grid))
-for (i in 1:nrow(eval_grid)){
-  option <- eval_grid$option[i]
-  outer_i <- eval_grid$outer_i[i]
-  
-  outs[[i]] <- derive_gof(option, outer_i)
-}
-
-
-WS_LM <- outs %>%
-  bind_rows()
-
-
-
-# SHC XGBoost -------------------------------------------------------------
-
-derive_gof <- function(option){
-  load(paste0("./data/SHC/model_fits/xgb_opt_", option, ".Rda"))
-  
-  pred_df <- optObj$scoreSummary %>% 
-    as_tibble() %>%
-    dplyr::slice(which.max(Score)) %>% # the optimal hyperpara
-    dplyr::select(val_rmse = Score, test_pred, Epoch) %>%
-    pull(test_pred) %>%
-    .[[1]]
-  
-  out <- hydroGOF::gof(sim = pred_df$pred, obs = pred_df$ob, digits=10) %>%
-    t() %>%
-    as_tibble() %>%
-    dplyr::select(RMSE, NSE, R2) %>%
-    mutate(
-      option = as.character(option),
-      outer_i  = 1,
-      model = "XGBoost",
-      site = "SHC") 
-  
-  out
-}
-
-eval_grid <- expand.grid(
-  option = 1:4
-) %>%
-  as_tibble()
-
-outs <- vector("list", nrow(eval_grid))
-for (i in 1:nrow(eval_grid)){
-  option <- eval_grid$option[i]
-
-  outs[[i]] <- derive_gof(option)
-}
-
-SHC_XGB <- outs %>%
-  bind_rows()
-
+SHC_XGB <- hydroGOF::gof(sim = pred, obs = ob, digits=10) %>%
+  t() %>%
+  as_tibble() %>%
+  dplyr::select(RMSE, NSE, R2) %>%
+  mutate(iter  = 1,
+         model = "XGBoost",
+         site = "SHC")
 
 # SHC LM ------------------------------------------------------------------
 
-derive_gof <- function(option){
-  load(paste0("./data/SHC/lm_fits/lm_", option, ".Rda"))
-  
-  pred_df <- optObj$scoreSummary %>% 
-    as_tibble() %>%
-    dplyr::slice(which.max(Score)) %>% # the optimal hyperpara
-    dplyr::select(val_rmse = Score, test_pred, Epoch) %>%
-    pull(test_pred) %>%
-    .[[1]]
-  
-  out <- hydroGOF::gof(sim = pred_df$pred, obs = pred_df$ob, digits=10) %>%
-    t() %>%
-    as_tibble() %>%
-    dplyr::select(RMSE, NSE, R2) %>%
-    mutate(
-      option = as.character(option),
-      outer_i  = 1,
-      model = "LM",
-      site = "SHC") 
-  
-  out
-}
+load("./data/SHC/lm_fits/gof_opt=1.Rda")
+df <- out$test_pred[[1]]
 
-eval_grid <- expand.grid(
-  option = 1:4
-) %>%
-  as_tibble()
+ob <- df$ob
+pred <- df$pred
 
-outs <- vector("list", nrow(eval_grid))
-for (i in 1:nrow(eval_grid)){
-  option <- eval_grid$option[i]
-  
-  outs[[i]] <- derive_gof(option)
-}
-
-SHC_LM <- outs %>%
-  bind_rows()
+SHC_LM <- hydroGOF::gof(sim = pred, obs = ob, digits=10) %>%
+  t() %>%
+  as_tibble() %>%
+  dplyr::select(RMSE, NSE, R2) %>%
+  mutate(iter  = 1,
+         model = "LM",
+         site = "SHC")
 
 # SHC SWMM ----------------------------------------------------------------
 
@@ -299,27 +162,24 @@ data_swmm <- read.table("./data/SHC/SWMM/outflow.txt", skip = 8) %>%
   arrange(datetime)
 
 # load observed flow
-load(paste0("./data/SHC/lm_fits/lm_", option, ".Rda"))
-pred_df <- optObj$scoreSummary %>% 
-  as_tibble() %>%
-  dplyr::slice(which.max(Score)) %>% # the optimal hyperpara
-  dplyr::select(val_rmse = Score, test_pred, Epoch) %>%
-  pull(test_pred) %>%
-  .[[1]] %>%
+load("./data/SHC/lm_fits/gof_opt=1.Rda")
+
+pred_df <- out$test_pred[[1]]
+
+pred_df <- pred_df %>%
   dplyr::select(-pred) %>%
-  left_join(data_swmm, by = "datetime")
+  left_join(data_swmm, by = "datetime") %>%
+  arrange(datetime)
+  
 
 SHC_SWMM <- hydroGOF::gof(sim = pred_df$pred, obs = pred_df$ob, digits=10) %>%
   t() %>%
   as_tibble() %>%
   dplyr::select(RMSE, NSE, R2) %>%
   mutate(
-    option = "None",
-    outer_i  = 1,
+    iter  = 1,
     model = "SWMM",
     site = "SHC") 
-
-
 
 
 # Plot --------------------------------------------------------------------
@@ -333,17 +193,17 @@ data_plot <- list(
 ) %>%
   bind_rows() %>%
   gather(metrics, value, RMSE:R2) %>%
-  mutate(option = factor(option),
-         model = factor(model, levels = c("XGBoost", "LM", "SWMM")),
+  mutate(model = factor(model, levels = c("XGBoost", "LM", "SWMM")),
          site = factor(site, levels = c("WS", "SHC")),
          metrics = factor(metrics, levels = c("RMSE", "NSE", "R2"), labels = c("RMSE", "NSE", "R²")))
 
 
-ggplot(data_plot, aes(model, value, color = option, shape = option))+
-  geom_point(position = position_dodge(0.6))+
+ggplot(data_plot, aes(model, value))+
+  geom_point(aes(color = model, shape = model), position = position_dodge(0.6))+
+  geom_line(aes(group = iter), color = "black", size = 0.3)+
   scale_y_continuous(limits = c(-0.12,1), breaks = c(0,0.2,0.4,0.6,0.8,1)) +
   facet_grid(site~metrics, scales = "free_y")+
-  labs(color = "Aggregation option", shape = "Aggregation option") +
+  labs(color = "Model", shape = "Model") +
   coord_capped_cart(bottom = brackets_horisontal(direction = "up", length = unit(0.12, "npc")))+
   scale_colour_Publication()+
   theme_Publication(base_size = 10)+
@@ -352,6 +212,6 @@ ggplot(data_plot, aes(model, value, color = option, shape = option))+
         panel.background = element_rect(fill = "grey97"),
         panel.spacing = unit(1, "lines"))
 
-ggsave(filename = "./data/SHC/plot/metrics.png", width = 7, height = 5, units = "in", dpi = 600)
-ggsave(filename = "./data/SHC/plot/figure4.pdf", width = 7, height = 5, units = "in")
+ggsave(filename = "./data/figures/figure5.png", width = 7, height = 5, units = "in", dpi = 600)
+ggsave(filename = "./data/figures/figure5.pdf", width = 7, height = 5, units = "in")
  
