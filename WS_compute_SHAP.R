@@ -21,6 +21,8 @@ pacman::p_load(
 load("./data/WS/ready_for_training.Rda")
 load("./data/WS/cv_folds.Rda")
 
+sapply(1:5, function(iter) analysis(cv_folds$splits[[iter]])$record_id %>% unlist() %>% length())
+
 
 # observational SHAP ------------------------------------------------------
 

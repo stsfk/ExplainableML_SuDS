@@ -399,10 +399,10 @@ opt_wrapper <- function(train_df,
   # save results
   if (save_results) {
     file.copy(from = paste0(temp_path, "/model_", run$best.ind, ".model"),
-              to = final_model_path)
+              to = final_model_path, overwrite = T)
     
     file.copy(from = paste0(temp_path, "/gof_", run$best.ind, ".Rda"),
-              to = final_gof_path)
+              to = final_gof_path, overwrite = T)
     
     save(run, file = run_path)
   }

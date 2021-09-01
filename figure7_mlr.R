@@ -265,12 +265,11 @@ temp <- SHC_SHAP_time_step %>%
   unname()
 
 SHC_SHAP_time_step <- tibble(
-  importance = temp,
+  importance = temp*1000,
   iter = 1,
   case = "SHC",
   time_step = (1:length(temp)) - 1
 )
-
 
 # Plot --------------------------------------------------------------------
 
@@ -281,8 +280,7 @@ data_plot <- WS_SHAP_time_steps %>%
 
 
 ggplot(data_plot, aes(time_step, importance, group = factor(iter)))+
-  geom_line()+
-  scale_x_log10()+
+  geom_line(size = 0.25, color = "dodgerblue4")+
   facet_wrap(~case, ncol = 1, scales = "free")+
   scale_x_continuous(
     trans = scales::pseudo_log_trans(base = 10),
@@ -290,14 +288,12 @@ ggplot(data_plot, aes(time_step, importance, group = factor(iter)))+
     labels = c(0, 1, " ", 10, " ", 100, " ", 1000)
   ) +
   labs(x = "Time step in the past",
-       y = "Average contribution of rainfall to discharge prediction [L/s]") +
+       y = "Average importance of rainfall to discharge prediction [L/s]") +
   theme_bw(base_size = 8) +
-  theme(legend.position = "top",
-        legend.title = element_blank(),
-        legend.key.height = unit(0.2, "line"))
+  theme(legend.position = "None")
 
-ggsave(filename = "./data/figures/figure7.png", width = 7, height = 4.5, units = "in", dpi = 600)
-ggsave(filename = "./data/figures/figure7.pdf", width = 7, height = 4.5, units = "in")
+ggsave(filename = "./data/figures/figure7.png", width = 5, height = 3, units = "in", dpi = 600)
+ggsave(filename = "./data/figures/figure7.pdf", width = 5, height = 3, units = "in")
 
 
 

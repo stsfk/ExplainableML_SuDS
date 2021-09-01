@@ -266,7 +266,6 @@ consistency_gof_wrapper <- function(prop,split,repeat_id){
   
   # load run results
   load(run_path)
-  run$x
   
   # load data
   dtest <- xgboost::xgb.DMatrix(paste0(final_data_path, "dtest.data"))
@@ -283,7 +282,6 @@ consistency_gof_wrapper <- function(prop,split,repeat_id){
   
   importance_df <- assign_shap_time_step(abs(SHAP_m), SHAP_m_names)
   
-  
   # return results
   
   tibble(
@@ -297,20 +295,14 @@ consistency_gof_wrapper <- function(prop,split,repeat_id){
 
 # data --------------------------------------------------------------------
 
-prop <- 5
-split <- 8
-repeat_id <- 2
-
-consistency_gof_wrapper(prop,split,repeat_id)
-
 eval_grid <- expand.grid(
-  prop = 5,
+  prop = c(5,10,20,30),
   split = 1:10,
   repeat_id = 1:10
 )
 
-
 asses_results <- vector("list", nrow(eval_grid))
+
 for (i in 1:nrow(eval_grid)){
   prop <- eval_grid$prop[i]
   split <- eval_grid$split[i]
@@ -329,13 +321,23 @@ data_plot %>%
   ggplot(aes(nse, consistency)) +
   geom_boxplot() +
   geom_point()+
-  facet_wrap(~split)+
+  facet_grid(prop ~split)+
   coord_flip()
 
 
+data_plot %>%
+  ggplot(aes(nse, consistency)) +
+  geom_boxplot()+
+  geom_point()+
+  facet_grid(~prop)+
+  coord_flip()
 
 
+data_plot %>%
+  group_by(prop) %>%
+  summarise(consistency = sum(consistency))
 
+save(data_plot, file = "./data/WS/inconsist_exp/data_plot.Rda")
 
 
 # recycle -----------------------------------------------------------------
@@ -517,6 +519,11 @@ ggplot(out, aes(time_step, shap)) +
 x <- abs(out$shap)
 compute_importance_consistency(x, 0)
 
+prop <- 5
+split <- 8
+repeat_id <- 2
+
+consistency_gof_wrapper(prop,split,repeat_id)
 
 
 
