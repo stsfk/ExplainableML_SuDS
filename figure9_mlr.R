@@ -67,7 +67,7 @@ load("./data/WS/inconsist_exp/data_plot.Rda")
 
 data_plot2 <- data_plot %>%
   mutate(prop = paste0(prop, "% training samples"),
-         prop = factor(prop, levels = str_c(c(5,10,20,30), "% training samples"))) %>%
+         prop = factor(prop, levels = str_c(c(5,10,20,30), "% training samples"), labels = str_c(c(10,20,40,60), "% training samples"))) %>%
   group_by(prop, consistency) %>%
   summarise(n = n())%>%
   mutate(nse=-0.4,
@@ -77,7 +77,7 @@ data_plot2 <- data_plot %>%
 
 data_plot %>%
   mutate(prop = paste0(prop, "% training samples"),
-         prop = factor(prop, levels = str_c(c(5,10,20,30), "% training samples")),
+         prop = factor(prop, levels = str_c(c(5,10,20,30), "% training samples"), labels = str_c(c(10,20,40,60), "% training samples")),
          consistency = factor(consistency, labels = c("inconsistent", "consistent"))) %>%
   ggplot(aes(consistency, nse, color = consistency)) +
   geom_boxplot(outlier.size = 1) +
