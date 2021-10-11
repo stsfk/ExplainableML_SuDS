@@ -137,7 +137,7 @@ for (iter in 1:5){
   shap_ob_dist <- distribute_shap(1:nrow(shap_matrixs), shap_matrixs) %>%
     as_tibble()
   
-  # compute hourly SHAP
+  # compute mean importance
   temp <- shap_ob_dist %>%
     dplyr::select(V1:V1441) %>%
     data.matrix() %>%
@@ -171,14 +171,14 @@ for (iter in 1:5){
     set_names(feature_names)
   
   shap_matrixs <- ob_SHAPs[[iter]] %>%
-    select(record_id, BIAS, iter) %>%
+    select(record_id) %>%
     bind_cols(shap_matrixs)
   
   # Distribute SHAP
   shap_ob_dist <- distribute_shap(1:nrow(shap_matrixs), shap_matrixs) %>%
     as_tibble()
   
-  # compute hourly SHAP
+  # compute mean importance
   temp <- shap_ob_dist %>%
     dplyr::select(V1:V1441) %>%
     data.matrix() %>%
