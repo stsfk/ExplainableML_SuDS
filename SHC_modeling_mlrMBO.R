@@ -15,7 +15,7 @@ pacman::p_load(
 
 tree_method <- "gpu_hist"
 
-set.seed(1234)
+set.seed(12345)
 
 # data --------------------------------------------------------------------
 # read rain
@@ -213,7 +213,7 @@ scoringFunction <- function(x, save_model = T) {
   
   ## experiment
   
-  preprocess_cols <- rep(1, ncol(dtest) - 1)
+  preprocess_cols <- rep(1, ncol(data_feature) - 1)
   
   # xgboost hyperparameters and CV training
   Pars <- list(
