@@ -10,11 +10,43 @@ pacman::p_load(
   caret,
   rsample,
   xgboost,
-  mlrMBO,
-  hydroGOF
+  mlrMBO
 )
 
+# data --------------------------------------------------------------------
+
+load("./data/WS/ready_for_training.Rda")
+
+# CONSTANT
+tree_method = "gpu_hist"
+#tree_method = "hist"
+SEED = 439759
+
+# remove zero runoff event
+trainable_df <- trainable_df %>%
+  filter(peak_flow != 0)
+
+# initial split
+initial_fold <- initial_split(trainable_df, prop = 60/100, strata = c("peak_flow"))
+
+trainable_df_splitted <- analysis(initial_fold)
+test_df_splitted <- testing(initial_fold)
+
+
+test_record_id <- test_df_splitted$record_id %>% unlist()
+
+average_rain <- rep(0,1441)
+for (i in test_record_id){
+  s <- i - 1440
+  e <- i
+  
+  average_rain <- average_rain + rev(data_process$X[s:e])
+}
+
+average_rain <- average_rain/max(average_rain)
+
 # functions ---------------------------------------------------------------
+
 
 gen_s_e <- function(m = 1440, l = 6, n = 6,
                     option = 1, a1 = 2) {
@@ -126,60 +158,34 @@ gen_feature <- function(m, l, n, account_cum_rain, account_season,
   out
 }
 
-get_feature_names <- function(x, option = 1){
-  
-  m <- x["m"] %>% unlist()
-  l <- x["l"] %>% unlist()
-  n <- x["n"] %>% unlist()
-  account_cum_rain <- x["account_cum_rain"] %>% unlist()
-  account_season <- x["account_season"] %>% unlist()
-  
-  
-  data_feature <- gen_feature(m, l, n, account_cum_rain, account_season, 
-                              data_process, option)
-  
-  c(train_index, val_index, test_index) %<-% {
-    list(train_df, val_df, test_df) %>%
-      lapply(function(x)
-        unlist(x$record_id))
-  }
-  
-  c(dtrain, dval, dtest, dtrain_val) %<-% {
-    list(train_index,
-         val_index,
-         test_index,
-         c(train_index, val_index)) %>%
-      lapply(extract_DMatrix, data_feature = data_feature)
-  }
-  
-  xgboost::xgb.DMatrix.save(dtrain, fname = paste0(final_data_path, "dtrain.data"))
-  xgboost::xgb.DMatrix.save(dval, fname = paste0(final_data_path, "dval.data"))
-  xgboost::xgb.DMatrix.save(dtest, fname = paste0(final_data_path, "dtest.data"))
-  xgboost::xgb.DMatrix.save(dtrain_val, fname = paste0(final_data_path, "dtrain_val.data"))
-}
 
-assign_shap_time_step <- function(SHAP_m, SHAP_m_names){
+distribute_SHAP <- function(SHAP_m, p_series){
   
-  mean_shap <- colMeans(SHAP_m)
+  out <- rep(0, 1441)
   
-  rain_depth_feature_ind <- SHAP_m_names %>% str_detect("^X") %>% which()
-  rain_features <- SHAP_m_names[rain_depth_feature_ind]
-  other_features <- SHAP_m_names[-rain_depth_feature_ind]
+  # Distribute SHAP of rainfall depth features to rainfall of each time step
+  rain_depth_feature_ind <- names(SHAP_m) %>% str_detect("^X") %>% which()
+  SHAP_m <- SHAP_m[rain_depth_feature_ind]
+
+  s_e <- names(SHAP_m) %>% 
+    str_split("_", simplify = T) %>%
+    str_extract("[0-9]+") %>%
+    as.numeric() %>%
+    matrix(ncol = 2)
   
-  out <- tibble(
-    time_step = 0:1440,
-    shap = 0
-  )
-  
-  for (j in seq_along(rain_features)) {
-    rain_feature <- rain_features[j]
-    s_e <- rain_feature %>% str_split("_", simplify = T) %>%
-      str_extract("[0-9]+") %>%
-      as.numeric()
-    c(s, e) %<-% s_e
+  for (j in seq_along(SHAP_m)){
+    s <- s_e[j, 1] + 1
+    e <- s_e[j, 2] + 1
     
-    out[(s + 1):(e + 1), 2] <-
-      out[(s + 1):(e + 1), 2] + mean_shap[j] / length(s:e) # SHAP to be distributed
+    p_segment <- p_series[s:e]
+    
+    if (sum(p_segment)!= 0){
+      weights <- p_segment/sum(p_segment)
+    } else {
+      weights <- rep(1/length(p_segment), length(p_segment))
+    }
+    
+    out[s:e] <- out[s:e] + SHAP_m[j] * weights
   }
   
   out
@@ -275,21 +281,25 @@ consistency_gof_wrapper <- function(prop,split,repeat_id){
   SHAP_m <- predict(model, dtest, predcontrib=T)
   
   # analysis
-  
   feature_name <-
-    read.csv(paste0(final_data_path, "feature_name.csv")) %>% unlist() %>% unname()
+    read.csv(paste0(final_data_path, "feature_name.csv"), header = F) %>% unlist() %>% unname()
   SHAP_m_names <- c(feature_name, "bias")
+  colnames(SHAP_m) <- SHAP_m_names
+
+  SHAP_m <- SHAP_m %>%
+    abs() %>%
+    colMeans()
   
-  importance_df <- assign_shap_time_step(abs(SHAP_m), SHAP_m_names)
-  
+  distributed_SHAP <- distribute_SHAP(SHAP_m, average_rain)
+
   # return results
   
   tibble(
-    consistency = compute_importance_consistency(abs(importance_df$shap), 0),
+    consistency = compute_importance_consistency(distributed_SHAP, 0),
     nse = hydroGOF::NSE(pred, ob),
     r2 = caret::R2(pred, ob),
     rmse = hydroGOF::rmse(pred,ob),
-    importance_df = list(importance_df)
+    distributed_SHAP = list(distributed_SHAP)
   )
 }
 
@@ -311,11 +321,9 @@ for (i in 1:nrow(eval_grid)){
   asses_results[[i]] <- consistency_gof_wrapper(prop,split,repeat_id)
 }
 
-
 data_plot <- asses_results %>%
   bind_rows() %>%
   bind_cols(eval_grid)
-
 
 data_plot %>%
   ggplot(aes(nse, consistency)) +
@@ -324,14 +332,12 @@ data_plot %>%
   facet_grid(prop ~split)+
   coord_flip()
 
-
 data_plot %>%
   ggplot(aes(nse, consistency)) +
   geom_boxplot()+
   geom_point()+
   facet_grid(~prop)+
   coord_flip()
-
 
 data_plot %>%
   group_by(prop) %>%
@@ -341,189 +347,4 @@ save(data_plot, file = "./data/WS/inconsist_exp/data_plot.Rda")
 
 
 # recycle -----------------------------------------------------------------
-
-for (prop in c(5)){
-  for (split in c(1:10)){
-    for (repeat_id in c(1:10)){
-      
-      # prepare run
-      final_model_path <- paste0(
-        "./data/WS/inconsist_exp/",
-        "prop=",
-        prop,
-        "split=",
-        split,
-        "repeat=",
-        repeat_id,
-        ".model"
-      )
-      
-      final_gof_path <- paste0(
-        "./data/WS/inconsist_exp/gof_",
-        "prop=",
-        prop,
-        "split=",
-        split,
-        "repeat=",
-        repeat_id,
-        ".Rda"
-      )
-      
-      final_data_path <- paste0(
-        "./data/WS/inconsist_exp/data_",
-        "prop=",
-        prop,
-        "split=",
-        split,
-        "repeat=",
-        repeat_id
-      )
-      
-      run_path <- paste0(
-        "./data/WS/inconsist_exp/run_",
-        "prop=",
-        prop,
-        "split=",
-        split,
-        "repeat=",
-        repeat_id,
-        ".Rda"
-      )
-      
-      # load model
-      model <- xgboost::xgb.load(final_model_path)
-      
-      # load run results
-      load(run_path)
-      run$x
-      
-      # load data
-      dtest <- xgboost::xgb.DMatrix(paste0(final_data_path, "dtest.data"))
-      ob <- xgboost::getinfo(dtest, "label")
-      
-      pred <- predict(model, dtest)
-      SHAP_m <- predict(model, dtest, predcontrib=T)
-      
-      # gof
-      
-      NSE(pred, ob)
-      
-      # analysis
-      
-      feature_name <-
-        read.csv(paste0(final_data_path, "feature_name.csv")) %>% unlist() %>% unname()
-      SHAP_m_names <- c(feature_name, "bias")
-      
-      
-      x <- abs(out$shap)
-      compute_importance_consistency(x, 0)
-      
-      
-      out <- assign_shap_time_step(abs(SHAP_m), SHAP_m_names)
-      
-      
-      
-      
-    }
-  }
-}
-
-# prepare run
-final_model_path <- paste0(
-  "./data/WS/inconsist_exp/",
-  "prop=",
-  prop,
-  "split=",
-  split,
-  "repeat=",
-  repeat_id,
-  ".model"
-)
-
-final_gof_path <- paste0(
-  "./data/WS/inconsist_exp/gof_",
-  "prop=",
-  prop,
-  "split=",
-  split,
-  "repeat=",
-  repeat_id,
-  ".Rda"
-)
-
-final_data_path <- paste0(
-  "./data/WS/inconsist_exp/data_",
-  "prop=",
-  prop,
-  "split=",
-  split,
-  "repeat=",
-  repeat_id
-)
-
-run_path <- paste0(
-  "./data/WS/inconsist_exp/run_",
-  "prop=",
-  prop,
-  "split=",
-  split,
-  "repeat=",
-  repeat_id,
-  ".Rda"
-)
-
-
-# load model
-model <- xgboost::xgb.load(final_model_path)
-
-# load run results
-load(run_path)
-run$x
-
-# load data
-dtest <- xgboost::xgb.DMatrix(paste0(final_data_path, "dtest.data"))
-ob <- xgboost::getinfo(dtest, "label")
-
-pred <- predict(model, dtest)
-SHAP_m <- predict(model, dtest, predcontrib=T)
-
-# gof
-
-NSE(pred, ob)
-
-# analysis
-
-feature_name <-
-  read.csv(paste0(final_data_path, "feature_name.csv")) %>% unlist() %>% unname()
-SHAP_m_names <- c(feature_name, "bias")
-
-out <- assign_shap_time_step(abs(SHAP_m), SHAP_m_names)
-
-
-
-
-
-
-
-
-
-
-ggplot(out, aes(time_step, shap)) +
-  geom_line() +
-  scale_x_log10()
-
-
-
-
-
-x <- abs(out$shap)
-compute_importance_consistency(x, 0)
-
-prop <- 5
-split <- 8
-repeat_id <- 2
-
-consistency_gof_wrapper(prop,split,repeat_id)
-
-
 
