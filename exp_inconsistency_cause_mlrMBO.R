@@ -26,11 +26,14 @@ SEED = 439759
 trainable_df <- trainable_df %>%
   filter(peak_flow != 0)
 
-# initial split
+# initial split, 40% data -> test; 60% data training
+# "prop: The proportion of data to be retained for modeling/analysis."
 initial_fold <- initial_split(trainable_df, prop = 60/100, strata = c("peak_flow"))
 
 trainable_df_splitted <- analysis(initial_fold)
-test_df_splitted <- testing(initial_fold)
+test_df <- testing(initial_fold)
+
+save(trainable_df_splitted, test_df_splitted, file = "./data/WS/inconsist_exp/init_split.Rda")
 
 # functions ---------------------------------------------------------------
 
@@ -145,12 +148,16 @@ gen_feature <- function(m, l, n, account_cum_rain, account_season,
 }
 
 divide_train_test_data <- function(df, prop, strata){
-  # random select prop events as training and validation sets
+  # random select prop events as training and validation sets 
+  # for the particular study, the data is chosen from the remaining 60% of samples
+  # "prop: The proportion of data to be retained for modeling/analysis."
   
+  # create smaller training dataset
   first_split <- initial_split(df, prop = prop, strata = strata)
-  
   train_df <- analysis(first_split)
   
+  # the assessment dataset is (1 - prop) of the original dataset in term of size
+  # from the assessment dataset select prop/(1 - prop) as validation dataset
   if (prop/(1-prop) == 1) {
     val_df <- assessment(first_split)
   } else {
@@ -162,7 +169,7 @@ divide_train_test_data <- function(df, prop, strata){
 }
 
 extract_DMatrix <- function(row_index, data_feature){
-  # This function create xgb.DMatrix for row_index subset of data_process
+  # This function create xgb.DMatrix for row_index subset of data_feature
   
   out <- data_feature[row_index,]
   out <- xgb.DMatrix(data = data.matrix(out %>% dplyr::select(-Y)),
@@ -173,7 +180,8 @@ extract_DMatrix <- function(row_index, data_feature){
 
 scoringFunction <- function(x, save_model = T) {
   
-  #  "train_df", "val_df", "test_df", and "temp_path" is from the environment
+  # "train_df", "val_df", "test_df", and "temp_path" is from the environment
+  # "option" is from global
   
   eta <- x["eta"] %>% unlist()
   max_depth <- x["max_depth"] %>% unlist()
@@ -188,16 +196,18 @@ scoringFunction <- function(x, save_model = T) {
   account_cum_rain <- x["account_cum_rain"] %>% unlist()
   account_season <- x["account_season"] %>% unlist()
   
-  
+  # create data_feature
   data_feature <- gen_feature(m, l, n, account_cum_rain, account_season, 
                               data_process, option)
   
+  # get the record id of the samples in training, validation, and test folds
   c(train_index, val_index, test_index) %<-% {
     list(train_df, val_df, test_df) %>%
       lapply(function(x)
         unlist(x$record_id))
   }
   
+  # create dtrain, dval, dtest, and dtrain_val DMatrix for training
   c(dtrain, dval, dtest, dtrain_val) %<-% {
     list(train_index,
          val_index,
@@ -208,6 +218,7 @@ scoringFunction <- function(x, save_model = T) {
   
   ## experiment
   
+  # create input for monotone_constraints
   n_X_vars <- names(data_feature) %>% str_detect("^X") %>% sum() # for setting monotone_constraints
   preprocess_cols <- c(rep(1, n_X_vars), rep(0, ncol(data_feature) - n_X_vars - 1))
   
@@ -239,6 +250,7 @@ scoringFunction <- function(x, save_model = T) {
   
   best_iteration <- xgbFit$best_iteration
   
+  # compute the prediction loss on dval, which is the score to be optimized
   score <- hydroGOF::gof(
     sim = predict(xgbFit, dval),
     obs = getinfo(dval, "label"),
@@ -246,8 +258,6 @@ scoringFunction <- function(x, save_model = T) {
   )[4]
   
   # train model on dtrain_val
-  pred_df <- list()
-  
   watchlist <- NULL
   xgbFit <- xgb.train(
     data = dtrain_val,
@@ -260,7 +270,7 @@ scoringFunction <- function(x, save_model = T) {
     monotone_constraints = preprocess_cols
   )
   
-  # predictions
+  # predictions for dtrain_val and dtest
   train_pred <- tibble(
     datetime = data_process$datetime[c(train_index, val_index)],
     ob = getinfo(dtrain_val, "label"),
@@ -283,11 +293,12 @@ scoringFunction <- function(x, save_model = T) {
   
   # save model
   if (save_model){
-    
+    # save model
     model_id <- (list.files(temp_path, pattern = "\\.model$") %>% length()) + 1
     file_path <- paste0(temp_path, "/model_",model_id,".model")
     xgb.save(model = xgbFit, fname = file_path)
     
+    # save predictions and scores
     file_path <- paste0(temp_path, "/gof_",model_id,".Rda")
     save(out, file = file_path)
   }
@@ -303,6 +314,7 @@ save_dMatrix <- function(x,
                          train_df,
                          val_df,
                          test_df){
+  # save dataset for the optimal model
   
   m <- x["m"] %>% unlist()
   l <- x["l"] %>% unlist()
@@ -310,16 +322,18 @@ save_dMatrix <- function(x,
   account_cum_rain <- x["account_cum_rain"] %>% unlist()
   account_season <- x["account_season"] %>% unlist()
   
-  
+  # create data_feature
   data_feature <- gen_feature(m, l, n, account_cum_rain, account_season, 
                               data_process, option)
   
+  # get the record id of the samples in training, validation, and test folds
   c(train_index, val_index, test_index) %<-% {
     list(train_df, val_df, test_df) %>%
       lapply(function(x)
         unlist(x$record_id))
   }
   
+  # create dtrain, dval, dtest, and dtrain_val DMatrix for training
   c(dtrain, dval, dtest, dtrain_val) %<-% {
     list(train_index,
          val_index,
@@ -328,11 +342,13 @@ save_dMatrix <- function(x,
       lapply(extract_DMatrix, data_feature = data_feature)
   }
   
+  # save data
   xgboost::xgb.DMatrix.save(dtrain, fname = paste0(final_data_path, "dtrain.data"))
   xgboost::xgb.DMatrix.save(dval, fname = paste0(final_data_path, "dval.data"))
   xgboost::xgb.DMatrix.save(dtest, fname = paste0(final_data_path, "dtest.data"))
   xgboost::xgb.DMatrix.save(dtrain_val, fname = paste0(final_data_path, "dtrain_val.data"))
   
+  # save feature names for distributing SHAP
   write.table(
     names(data_feature[-1]),
     file = paste0(final_data_path, "feature_name.csv"),
@@ -362,15 +378,13 @@ obj_fun <- makeSingleObjectiveFunction(
 )
 
 
-opt_wrapper <- function(train_df,
-                        val_df,
-                        test_df,
-                        save_results = T,
+opt_wrapper <- function(save_results = T,
                         final_model_path = NULL,
                         final_gof_path = NULL,
                         run_path = NULL,
                         n_iter = 100) {
   
+  # design matrix
   des = generateDesign(
     n = 4 * getNumberOfParameters(obj_fun),
     par.set = getParamSet(obj_fun),
@@ -379,18 +393,13 @@ opt_wrapper <- function(train_df,
   
   des$y = apply(des, 1, obj_fun)
   
-  
+  # optimization control
   control <- makeMBOControl() %>%
     setMBOControlTermination(., iters = n_iter - 4 * getNumberOfParameters(obj_fun))
   
+  # run optimization
   run <- mbo(
     fun = obj_fun,
-    learner = makeLearner(
-      "regr.km",
-      predict.type = "se",
-      covtype = "matern3_2",
-      control = list(trace = FALSE)
-    ),
     design = des,
     control = control,
     show.info = TRUE
@@ -410,20 +419,21 @@ opt_wrapper <- function(train_df,
   run
 }
 
+
+
 # Experiment --------------------------------------------------------------
 
 option = 1
 temp_path <- "./data/WS/inconsist_exp/temp"
 
-for (prop in c(5,10,20,30)) {
+for (prop in c(5, 10, 20, 30)) {
   for (split in c(1:10)) {
     
     # split
     c(train_df, val_df) %<-% divide_train_test_data(trainable_df_splitted,
                                                     prop = prop / 60,
                                                     strata = "peak_flow")
-    test_df <- test_df_splitted
-    
+
     save(
       train_df,
       val_df,
@@ -489,9 +499,6 @@ for (prop in c(5,10,20,30)) {
       
       # run optimization
       run <- opt_wrapper(
-        train_df,
-        val_df,
-        test_df,
         save_results = T,
         final_model_path,
         final_gof_path,
@@ -510,39 +517,23 @@ for (prop in c(5,10,20,30)) {
 }
 
 
+# recycle -----------------------------------------------------------------
 
 
-# Recycle -----------------------------------------------------------------
-
-
-xgb.DMatrix.save()
-
-c(train_df, val_df) %<-% divide_train_test_data(trainable_df_splitted, prop = 5/60, strata = "peak_flow")
-test_df <- test_df_splitted
-
-save_model = T
-option = 1
-temp_path <- "./data/WS/inconsist_exp/temp"
-
-des = generateDesign(n=4 * getNumberOfParameters(obj_fun),
-                     par.set = getParamSet(obj_fun), 
-                     fun = lhs::randomLHS)
-
-des$y = apply(des, 1, obj_fun)
-
-
-control <- makeMBOControl() %>%
-  setMBOControlTermination(., iters = 10)
-
-run <- mbo(fun = obj_fun,
-           design = des,
-           learner = makeLearner("regr.km", predict.type = "se", covtype = "matern3_2", control = list(trace = FALSE)),
-           control = control, 
-           show.info = TRUE)
-
-
-
-
-run$best.ind
-
-
+for (prop in c(5, 10, 20, 30)) {
+  for (split in c(1:10)) {
+    for (repeat_id in c(1:10)) {
+      final_data_path <- paste0(
+        "./data/WS/inconsist_exp/data_",
+        "prop=",
+        prop,
+        "split=",
+        split,
+        "repeat=",
+        repeat_id
+      )
+      
+      xgboost::xgb.DMatrix(paste0(final_data_path, "dtest.data"))
+    }
+  }
+}
