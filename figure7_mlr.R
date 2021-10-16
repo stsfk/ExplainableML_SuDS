@@ -26,56 +26,6 @@ load("./data/WS/model_fits/ob_SHAPs.Rda")
 
 # Function ----------------------------------------------------------------
 
-get_predction <- function(option, outer_i, id){
-  
-  dtrain <- read_csv(
-    paste0(
-      "./data/WS/model_fits/xgb_opt_",
-      option,
-      "_iter_",
-      outer_i,
-      "/train_",
-      id,
-      ".csv"
-    ),
-    col_types = cols(.default = col_double())
-  )
-  
-  dtest <- read_csv(
-    paste0(
-      "./data/WS/model_fits/xgb_opt_",
-      option,
-      "_iter_",
-      outer_i,
-      "/test_",
-      id,
-      ".csv"
-    ),
-    col_types = cols(.default = col_double())
-  )
-  
-  
-  model <- xgboost::xgb.load(
-    paste0(
-      "./data/WS/model_fits/xgb_opt_",
-      option,
-      "_iter_",
-      outer_i,
-      "/model_",
-      id,
-      ".model"
-    )
-  )
-  
-  # new_data is the data of both training and the test set
-  new_data <- dtrain %>% 
-    bind_rows(dtest) %>%
-    data.matrix() %>%
-    xgboost::xgb.DMatrix()
-  
-  predict(model, new_data)
-}
-
 distribute_shap <- function(ids, shap_matrix){
   
   out <- matrix(0, nrow = length(ids), ncol = 1441)
@@ -118,8 +68,6 @@ distribute_shap <- function(ids, shap_matrix){
 }
 
 # Process -----------------------------------------------------------------
-
-iter <- 1
 
 WS_SHAP_time_steps <- vector("list", 5)
 
@@ -265,7 +213,7 @@ temp <- SHC_SHAP_time_step %>%
   unname()
 
 SHC_SHAP_time_step <- tibble(
-  importance = temp*1000,
+  importance = temp*1000, # cms to lps
   iter = 1,
   case = "SHC",
   time_step = (1:length(temp)) - 1
