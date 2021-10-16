@@ -26,56 +26,6 @@ load("./data/WS/model_fits/ob_SHAPs.Rda")
 
 # Function ----------------------------------------------------------------
 
-get_predction <- function(option, outer_i, id){
-  
-  dtrain <- read_csv(
-    paste0(
-      "./data/WS/model_fits/xgb_opt_",
-      option,
-      "_iter_",
-      outer_i,
-      "/train_",
-      id,
-      ".csv"
-    ),
-    col_types = cols(.default = col_double())
-  )
-  
-  dtest <- read_csv(
-    paste0(
-      "./data/WS/model_fits/xgb_opt_",
-      option,
-      "_iter_",
-      outer_i,
-      "/test_",
-      id,
-      ".csv"
-    ),
-    col_types = cols(.default = col_double())
-  )
-  
-  
-  model <- xgboost::xgb.load(
-    paste0(
-      "./data/WS/model_fits/xgb_opt_",
-      option,
-      "_iter_",
-      outer_i,
-      "/model_",
-      id,
-      ".model"
-    )
-  )
-  
-  # new_data is the data of both training and the test set
-  new_data <- dtrain %>% 
-    bind_rows(dtest) %>%
-    data.matrix() %>%
-    xgboost::xgb.DMatrix()
-  
-  predict(model, new_data)
-}
-
 distribute_shap <- function(ids, shap_matrix){
   
   out <- matrix(0, nrow = length(ids), ncol = 1441)
@@ -132,11 +82,13 @@ shap_ob_dist_m <- shap_ob_dist %>%
   dplyr::select(V1:V1441) %>%
   data.matrix()
 
+# define intervals for adding contributions
 s_e <- tibble(
   s = (0:6)*6 + 1,
   e = c(1:6*6, 1441)
 )
 
+# compute the aggregated SHAP
 out <- matrix(nrow = nrow(shap_ob_dist_m), ncol = nrow(s_e))
 
 for (i in 1:nrow(s_e)){
@@ -147,16 +99,13 @@ out <- out %>%
   as_tibble() %>%
   set_names(c("1h", "2h", "3h", "4h", "5h", "6h", ">6h"))
 
-
+# combine other information
 SHAP_horuly <- shap_matrixs %>%
   dplyr::select(record_id, iter, BIAS, month4:month9) %>%
   mutate(
     other_variables = month4 + month5 + month6 + month7 + month8 + month9
   ) %>%
   bind_cols(out)
-
-
-
 
 # Plot --------------------------------------------------------------------
 
