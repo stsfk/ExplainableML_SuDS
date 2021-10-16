@@ -17,181 +17,63 @@ pacman::p_load(
 
 load("./data/WS/ready_for_training.Rda")
 
-# CONSTANT
-tree_method = "gpu_hist"
-#tree_method = "hist"
-SEED = 439759
+load("./data/WS/inconsist_exp/split_prop=5split=1.Rda")
 
-# remove zero runoff event
-trainable_df <- trainable_df %>%
-  filter(peak_flow != 0)
-
-# initial split
-initial_fold <- initial_split(trainable_df, prop = 60/100, strata = c("peak_flow"))
-
-trainable_df_splitted <- analysis(initial_fold)
-test_df_splitted <- testing(initial_fold)
-
-
-test_record_id <- test_df_splitted$record_id %>% unlist()
-
-average_rain <- rep(0,1441)
-for (i in test_record_id){
-  s <- i - 1440
-  e <- i
-  
-  average_rain <- average_rain + rev(data_process$X[s:e])
-}
-
-average_rain <- average_rain/max(average_rain)
+# compute the average rain recorded for the test dataset
+test_record_id <- test_df$record_id %>% unlist()
 
 # functions ---------------------------------------------------------------
 
-
-gen_s_e <- function(m = 1440, l = 6, n = 6,
-                    option = 1, a1 = 2) {
-  # Function to gen s_e tibble
-  
-  # a1 is the first term
-  
-  # Detailed rain ts to be included, s_e_l, more recent rainfalls 
-  s_e_l <- tibble(s = c(0:l),
-                  e = c(0:l))
-  
-  # Aggregated rain TS
-  d <- (m - l - n * a1) * 2 / n / (n - 1) # compute the common difference
-  
-  e <- (a1 + 0:(n - 1) * d) %>%
-    cumsum() %>%
-    round()
-  
-  # sort to avoid later interval < the previous interval
-  e <- (c(a1, diff(e)) %>% sort() %>% cumsum()) + l
-  
-  # identify s
-  s <- c(l + 1, e[-length(e)] + 1)
-  
-  s_e <- tibble(s = s,
-                e = e)
-  
-  if (option == 1) {
-    s_e <- rbind(s_e_l, s_e)
-    return(s_e)
-  }
-  
-  if (option == 2) {
-    s_e <- rbind(s_e_l, s_e)
-    s_e[, 1] <- 0 # key line
-    return(s_e)
-  }
-  
-  if (option == 3) {
-    s_e[, 1] <- 0 # key line
-    
-    s_e <- rbind(s_e_l, s_e)
-    return(s_e)
-  }
-  
-  if (option == 4) {
-    s_e[, 1] <- s_e[[1, 1]] # key line
-    
-    s_e <- rbind(s_e_l, s_e)
-    return(s_e)
-  }
-}
-
-
-feature_vector <- function(x, s, e) {
-  # This is a function to return vector of input feature,
-  # s is the start location
-  # e is the end location
-  
-  e <- e + 1
-  
-  if (s == 0) {
-    out <- roll_sum(x, e, align = "right", fill = NA)
-  } else {
-    out <-
-      roll_sum(x, e, align = "right", fill = NA) - roll_sum(x, s, align = "right", fill = NA)
-  }
-  
-  out
-}
-
-gen_feature <- function(m, l, n, account_cum_rain, account_season, 
-                        data_process, option = 1) {
-  # This is a function for creating features
-  #
-  #   y: the output variable
-  #   x: the original predictor
-  #   s_e: the index of new predictors
-  
-  s_e <- gen_s_e(m, l, n, option)
-  
-  # create a vector of the original predictor
-  org_pred <- data_process$X
-  
-  # create out tibble
-  out <- data_process %>%
-    select(Y)
-  
-  # create features and name the columns based on the "s" and "e" index
-  for (i in 1:nrow(s_e)) {
-    c(s, e) %<-% s_e[i,]
-    
-    var_name <- paste0("X", s, "_", e)
-    out[var_name] <- feature_vector(org_pred, s, e)
-  }
-  
-  # add cum rainfall var
-  if (account_cum_rain) {
-    out["cum_rain"] <- data_process$cum_rain
-  }
-  
-  # add season vars
-  if (account_season) {
-    # the month10 is linear combination of month4-9, thus excluded
-    out <- out %>%
-      bind_cols(data_process[str_detect(names(data_process), "month4|5|6|7|8|9")])
-  }
-  
-  out
-}
-
-
-distribute_SHAP <- function(SHAP_m, p_series){
-  
-  out <- rep(0, 1441)
-  
+distribute_shap <- function(shap_matrix, ids){
   # Distribute SHAP of rainfall depth features to rainfall of each time step
-  rain_depth_feature_ind <- names(SHAP_m) %>% str_detect("^X") %>% which()
-  SHAP_m <- SHAP_m[rain_depth_feature_ind]
-
-  s_e <- names(SHAP_m) %>% 
+  
+  # shap_maxtrix: absolute value of the SHAP metrics for dtest
+  # ids: the record_id of samples in dtest
+  
+  # out: 
+  out <- matrix(0, nrow = length(ids), ncol = 1441)
+  
+  # get the s and e index (t-a, t-b in the paper) from the feature names
+  rain_depth_feature_ind <- colnames(shap_matrix) %>% str_detect("^X") %>% which()
+  
+  s_e <- colnames(shap_matrix)[rain_depth_feature_ind] %>% 
     str_split("_", simplify = T) %>%
     str_extract("[0-9]+") %>%
     as.numeric() %>%
     matrix(ncol = 2)
   
-  for (j in seq_along(SHAP_m)){
-    s <- s_e[j, 1] + 1
-    e <- s_e[j, 2] + 1
+  for (i in seq_along(ids)) {
+    rainfall_depth_feature_shap <- shap_matrix[i,rain_depth_feature_ind] %>% unlist()
     
-    p_segment <- p_series[s:e]
+    # Get the corresponding rainfall time series, from t-0 to t-1440
+    record_id <- ids[[i]]
+    p_series <- data_process$X[(record_id-1440):record_id] %>% rev()
     
-    if (sum(p_segment)!= 0){
-      weights <- p_segment/sum(p_segment)
-    } else {
-      weights <- rep(1/length(p_segment), length(p_segment))
+    # Distribute SHAP value of each rainfall depth feature
+    for (j in seq_along(rainfall_depth_feature_shap)){
+      
+      # get the p_segment based on s and e index
+      s <- s_e[j, 1] + 1
+      e <- s_e[j, 2] + 1
+      
+      p_segment <- p_series[s:e]
+      
+      # distribute proportional to rainfall depth
+      if (sum(p_segment)!= 0){
+        weights <- p_segment/sum(p_segment)
+      } else {
+        weights <- rep(1/length(p_segment), length(p_segment))
+      }
+      
+      # fill the i th row of out
+      out[i,s:e] <- out[i,s:e] + rainfall_depth_feature_shap[j] * weights
     }
-    
-    out[s:e] <- out[s:e] + SHAP_m[j] * weights
   }
   
   out
 }
 
-compute_importance_consistency <- function(x, thd=0){
+compute_importance_consistency <- function(x, thd=5e-5){
   # after the peak, the impact on prediction should decrease
   x_diff <- x[which.max(x):length(x)] %>%
     diff()
@@ -223,7 +105,7 @@ compute_importance_consistency <- function(x, thd=0){
 consistency_gof_wrapper <- function(prop,split,repeat_id){
   load("./data/WS/ready_for_training.Rda")
   
-  # prepare run
+  # paths of the modeling results
   final_model_path <- paste0(
     "./data/WS/inconsist_exp/",
     "prop=",
@@ -273,33 +155,30 @@ consistency_gof_wrapper <- function(prop,split,repeat_id){
   # load run results
   load(run_path)
   
-  # load data
+  # load data and extract observation
   dtest <- xgboost::xgb.DMatrix(paste0(final_data_path, "dtest.data"))
   ob <- xgboost::getinfo(dtest, "label")
   
+  # get predcition
   pred <- predict(model, dtest)
-  SHAP_m <- predict(model, dtest, predcontrib=T)
   
-  # analysis
+  # compute shap_matrix, the absolute values are used
+  shap_matrix <- predict(model, dtest, predcontrib=T) %>%
+    abs()
+  
+  # assign names to shap_matrix
   feature_name <-
     read.csv(paste0(final_data_path, "feature_name.csv"), header = F) %>% unlist() %>% unname()
   SHAP_m_names <- c(feature_name, "bias")
-  colnames(SHAP_m) <- SHAP_m_names
-
-  SHAP_m <- SHAP_m %>%
-    abs() %>%
-    colMeans()
+  colnames(shap_matrix) <- SHAP_m_names
   
-  distributed_SHAP <- distribute_SHAP(SHAP_m, average_rain)
-
+  # distribute SHAP values to rainfall of each time step
+  distributed_SHAP <- distribute_shap(shap_matrix, test_record_id)
+  
   # return results
-  
   tibble(
-    consistency = compute_importance_consistency(distributed_SHAP, 0),
-    nse = hydroGOF::NSE(pred, ob),
-    r2 = caret::R2(pred, ob),
-    rmse = hydroGOF::rmse(pred,ob),
-    distributed_SHAP = list(distributed_SHAP)
+    consistency = compute_importance_consistency(colMeans(distributed_SHAP)),
+    nse = hydroGOF::NSE(pred, ob)
   )
 }
 
@@ -319,6 +198,8 @@ for (i in 1:nrow(eval_grid)){
   repeat_id <- eval_grid$repeat_id[i]
   
   asses_results[[i]] <- consistency_gof_wrapper(prop,split,repeat_id)
+  
+  gc()
 }
 
 data_plot <- asses_results %>%

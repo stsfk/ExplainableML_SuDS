@@ -70,7 +70,7 @@ data_plot2 <- data_plot %>%
          prop = factor(prop, levels = str_c(c(5,10,20,30), "% training samples"), labels = str_c(c(10,20,40,60), "% training samples"))) %>%
   group_by(prop, consistency) %>%
   summarise(n = n())%>%
-  mutate(nse=-0.4,
+  mutate(nse=-2.1,
          n = paste0("n = ", n),
          consistency = factor(consistency, labels = c("inconsistent", "consistent")))
 

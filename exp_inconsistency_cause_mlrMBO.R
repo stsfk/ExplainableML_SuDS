@@ -33,7 +33,7 @@ initial_fold <- initial_split(trainable_df, prop = 60/100, strata = c("peak_flow
 trainable_df_splitted <- analysis(initial_fold)
 test_df <- testing(initial_fold)
 
-save(trainable_df_splitted, test_df_splitted, file = "./data/WS/inconsist_exp/init_split.Rda")
+save(trainable_df_splitted, test_df, file = "./data/WS/inconsist_exp/init_split.Rda")
 
 # functions ---------------------------------------------------------------
 
