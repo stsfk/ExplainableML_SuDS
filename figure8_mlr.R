@@ -26,57 +26,8 @@ load("./data/WS/model_fits/ob_SHAPs.Rda")
 
 # Function ----------------------------------------------------------------
 
-get_predction <- function(option, outer_i, id){
-  
-  dtrain <- read_csv(
-    paste0(
-      "./data/WS/model_fits/xgb_opt_",
-      option,
-      "_iter_",
-      outer_i,
-      "/train_",
-      id,
-      ".csv"
-    ),
-    col_types = cols(.default = col_double())
-  )
-  
-  dtest <- read_csv(
-    paste0(
-      "./data/WS/model_fits/xgb_opt_",
-      option,
-      "_iter_",
-      outer_i,
-      "/test_",
-      id,
-      ".csv"
-    ),
-    col_types = cols(.default = col_double())
-  )
-  
-  
-  model <- xgboost::xgb.load(
-    paste0(
-      "./data/WS/model_fits/xgb_opt_",
-      option,
-      "_iter_",
-      outer_i,
-      "/model_",
-      id,
-      ".model"
-    )
-  )
-  
-  # new_data is the data of both training and the test set
-  new_data <- dtrain %>% 
-    bind_rows(dtest) %>%
-    data.matrix() %>%
-    xgboost::xgb.DMatrix()
-  
-  predict(model, new_data)
-}
-
 distribute_shap <- function(ids, shap_matrix){
+  # ids: the row index of shap_matrix, whose SHAP values are to be distributed
   
   out <- matrix(0, nrow = length(ids), ncol = 1441)
   
@@ -117,7 +68,6 @@ distribute_shap <- function(ids, shap_matrix){
   out
 }
 
-
 # Ob SHAP -----------------------------------------------------------------
 
 WS_SHAP_time_steps <- vector("list", 5)
@@ -154,7 +104,6 @@ for (iter in 1:5){
     time_step = (1:length(temp)) - 1
   )
 }
-
 
 # Int SHAP ----------------------------------------------------------------
 
@@ -202,6 +151,8 @@ for (iter in 1:5){
 }
 
 # Other importance --------------------------------------------------------
+
+# compute average rain of each time step, from t-0 to t-1440
 trainable_record_id <- trainable_df$record_id %>%
   unlist()
 average_rain <- rep(0,1441)
@@ -213,6 +164,7 @@ for (i in trainable_record_id){
 }
 
 average_rain <- average_rain/max(average_rain)
+
 
 other_importance <- function(iter){
   
