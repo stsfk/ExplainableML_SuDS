@@ -152,6 +152,9 @@ for (iter in 1:5){
 
 # Other importance --------------------------------------------------------
 
+trainable_df <- trainable_df %>%
+  filter(peak_flow != 0)
+
 # compute average rain of each time step, from t-0 to t-1440
 trainable_record_id <- trainable_df$record_id %>%
   unlist()
