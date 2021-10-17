@@ -338,13 +338,6 @@ for (option in 1:1){
     ".Rda"
   )
   
-  final_model_path <- paste0(
-    "./data/SHC/lm_fits/gof_",
-    "opt=",
-    option,
-    ".model"
-  )
-  
   run_path <- paste0(
     "./data/SHC/lm_fits/run_",
     "opt=",
@@ -365,9 +358,6 @@ for (option in 1:1){
   )
   
   # save results
-  file.copy(from = paste0(temp_path, "/model_", run$best.ind, ".model"),
-            to = final_model_path)
-  
   file.copy(from = paste0(temp_path, "/gof_", run$best.ind, ".Rda"),
             to = final_gof_path)
   
