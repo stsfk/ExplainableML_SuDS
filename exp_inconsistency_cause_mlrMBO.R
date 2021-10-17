@@ -515,25 +515,3 @@ for (prop in c(5, 10, 20, 30)) {
     }
   }
 }
-
-
-# recycle -----------------------------------------------------------------
-
-
-for (prop in c(5, 10, 20, 30)) {
-  for (split in c(1:10)) {
-    for (repeat_id in c(1:10)) {
-      final_data_path <- paste0(
-        "./data/WS/inconsist_exp/data_",
-        "prop=",
-        prop,
-        "split=",
-        split,
-        "repeat=",
-        repeat_id
-      )
-      
-      xgboost::xgb.DMatrix(paste0(final_data_path, "dtest.data"))
-    }
-  }
-}
